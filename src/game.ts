@@ -129,24 +129,40 @@ export class Match {
  }
  // Ball-only crossbar escape. No AI input or player forces are involved.
  private releaseRoofBall(dt:number){
-  const b=this.ball,{x,y}=b.position;
-  const roofY=GOAL_TOP-4-BALL_RADIUS;
-  const left=x>=BALL_RADIUS&&x<=82;
-  const right=x>=918&&x<=WIDTH-BALL_RADIUS;
-  // Only correct a slow ball actually resting on a crossbar.
-  if(this.phase!=='playing'||(!left&&!right)||Math.abs(y-roofY)>9||
-     Math.abs(b.velocity.y)>2.2||Math.abs(b.velocity.x)>3){
-   this.roofRestTime=0;return;
+  const b = this.ball;
+  const {x, y} = b.position;
+  const roofY = GOAL_TOP - 4 - BALL_RADIUS;
+
+  const left = x >= BALL_RADIUS && x <= 82;
+  const right = x >= 918 && x <= WIDTH - BALL_RADIUS;
+
+  // Detect a ball lingering above either crossbar.
+  if (
+    this.phase !== 'playing' ||
+    (!left && !right) ||
+    Math.abs(y - roofY) > 12 ||
+    Math.abs(b.velocity.x) > 3
+  ){
+    this.roofRestTime = 0;
+    return;
   }
-  this.roofRestTime+=dt;
-  if(this.roofRestTime<.25)return;
-  const direction=left?1:-1;
-  // Give the ball enough horizontal velocity to leave the roof without
-  // teleporting it or altering the bot's movement and targeting.
-  Body.setVelocity(b,{x:direction*8,y:-2.8});
-  Body.setAngularVelocity(b,direction*.18);
-  this.roofRestTime=0;
- }
+
+  this.roofRestTime += dt;
+
+  if(this.roofRestTime < 0.25) return;
+
+  const direction = left ? 1 : -1;
+
+  // Push the ball toward the field without CPU intervention.
+  Body.setVelocity(b, {
+    x: direction * 12,
+    y: -2.8
+  });
+
+  Body.setAngularVelocity(b, direction * 0.18);
+
+  this.roofRestTime = 0;
+}
  // Track each physics frame; latency gates actions, never the observations.
  botState:'charge'|'defend'|'recover'='charge';
  botTarget={x:500,y:160};
