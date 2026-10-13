@@ -1,0 +1,11 @@
+import {useEffect,useRef,useState} from 'react';
+import {Cup} from './cup';
+import {CupReward,cupOutcome,WINNER_BONUSES} from './rewards';
+import {CupTrophy} from './CupVisuals';
+export function CupRewardScreen({cup,onClaim,onClose}:{cup:Cup;onClaim:()=>CupReward;onClose:()=>void}){
+ const outcome=cupOutcome(cup)!;const [reward,setReward]=useState<CupReward|null>(null),[rolling,setRolling]=useState(false),[slot,setSlot]=useState(0),[error,setError]=useState('');const locked=useRef(false),timer=useRef<ReturnType<typeof setTimeout>|null>(null);
+ useEffect(()=>()=>{if(timer.current)clearTimeout(timer.current);},[]);
+ useEffect(()=>{if(!rolling)return;const id=setInterval(()=>setSlot(n=>(n+1)%6),85);return()=>clearInterval(id);},[rolling]);
+ function collect(){if(locked.current)return;locked.current=true;try{const result=onClaim();setError('');if(result.won){setRolling(true);timer.current=setTimeout(()=>{setRolling(false);setReward(result);},1800);}else setReward(result);}catch{locked.current=false;setError('Could not save your coins. Please retry.');}}
+ return <section onKeyDown={e=>{if(e.key==='Tab'){const buttons=Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));if(buttons.length===1){e.preventDefault();buttons[0].focus();}}}} className="cup-reward-overlay" role="dialog" aria-modal="true" aria-labelledby="cup-reward-title"><div className="cup-reward-panel"><CupTrophy/><span className="cup-reward-kicker">INT. CUP · HARD</span><h2 id="cup-reward-title">{outcome.won?'CHAMPION BONUS':outcome.label}</h2><p>TOURNAMENT REWARD: {outcome.base} COINS</p>{outcome.won&&<><div className="bonus-amount" aria-live="polite">{rolling?`+${WINNER_BONUSES[slot]}`:reward?`+${reward.bonus}`:'?'}</div><div className="bonus-options">{WINNER_BONUSES.map((n,i)=><span key={n} className={(rolling?slot===i:reward?.bonus===n)?'active':''}>+{n}</span>)}</div><p>ONE BONUS · SIX EQUAL CHANCES</p></>}{reward?<><strong className="reward-total">+{reward.total} COINS ADDED</strong><button autoFocus className="lobby-gold-button" onClick={onClose}>CONTINUE</button></>:<button autoFocus className="lobby-gold-button" disabled={rolling} onClick={collect}>{rolling?'ROLLING…':outcome.won?'ROLL BONUS':`COLLECT ${outcome.base} COINS`}</button>}{error&&<p role="alert">{error}</p>}</div></section>;
+}

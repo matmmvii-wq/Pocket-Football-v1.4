@@ -1,0 +1,40 @@
+import {isSkinId,SkinId,SHOP_SKINS} from './shopCatalog';
+// A small asset catalog and versioned cosmetic profile shared by client and server.
+export const AVATAR_OPTIONS={hair:['mod cut','dreads short','dreads long','warrior cut','crop','long','buzz cut','bald','middle part','highlights','afro'],eyes:['round','focused','wide'],brows:['natural','thick','angled','arched','straight'],mouth:['smile','neutral','grin'],facialHair:['none','stubble','mustache','mustache and goatee','beard','goatee','chin strap'],top:['jersey','t-shirt','hoodie'],pattern:['plain','stripes','chest band','diagonal','split','chevron','pinstripes','shoulders'],sleeves:['short','long'],bottom:['shorts','trousers'],shoes:['boots','trainers'],headwear:['none','headband','cap','beanie'],glasses:['none','clear','sunglasses','round','sport'],earrings:['none','studs','hoops'],wristwear:['none','wristbands','watch'],necklace:['none','chain','pendant','beads']} as const;
+export type AvatarChoice=keyof typeof AVATAR_OPTIONS;
+export const COLOR_KEYS=['skin','hairColor','browColor','facialHairColor','eyeColor','topColor','trimColor','bottomColor','sockColor','shoeColor','accessoryColor'] as const;
+export type AvatarColor=typeof COLOR_KEYS[number];
+export type Avatar={version:1;name:string;skinId?:SkinId}&{[K in AvatarChoice]:typeof AVATAR_OPTIONS[K][number]}&Record<AvatarColor,string>;
+export const DEFAULT_AVATAR:Avatar={version:1,name:'My Player',skin:'#b7733b',hair:'mod cut',hairColor:'#3a2519',browColor:'#3a2519',facialHairColor:'#3a2519',eyeColor:'#35261b',eyes:'round',brows:'natural',mouth:'smile',facialHair:'none',top:'jersey',pattern:'plain',sleeves:'short',topColor:'#2864bc',trimColor:'#f5d46a',bottom:'shorts',bottomColor:'#18273e',sockColor:'#eeeeeb',shoes:'boots',shoeColor:'#f5f0e5',headwear:'none',glasses:'none',earrings:'none',wristwear:'none',necklace:'none',accessoryColor:'#e9bb42'};
+export const SKIN_TONES=['#f7dfcf','#f2d3ba','#edc6a7','#e8b78f','#dfae88','#d9a078','#cd9468','#c48a60','#b98053','#b7733b','#aa704a','#9c643f','#915732','#825135','#73472f','#6b402c','#5b3829','#4c3025','#3e2922','#32231e'];
+export const HAIR_COLORS=['#171719','#29282a','#3a2519','#513525','#71503a','#946b48','#b66a32','#d58e48','#74352b','#9b4533','#69696b','#989896','#d8d3c9','#f1ece2'];
+export const NATURAL_COLORS=['#171719','#3a2519','#71503a','#a15b32','#96928b'];
+export const EYE_COLORS=['#35261b','#956028','#367ab8','#63b8d0','#3d915b','#7f934b','#919eaa'];
+function nearest(color:string,palette:readonly string[]){const rgb=(v:string)=>[1,3,5].map(i=>parseInt(v.slice(i,i+2),16));const c=rgb(color);return palette.reduce((best,v)=>{const dist=(s:string)=>rgb(s).reduce((n,x,i)=>n+(x-c[i])**2,0);return dist(v)<dist(best)?v:best;});}
+export const RESTRICTED_COLORS:Partial<Record<AvatarColor,readonly string[]>>={skin:SKIN_TONES,hairColor:HAIR_COLORS,browColor:NATURAL_COLORS,facialHairColor:NATURAL_COLORS,eyeColor:EYE_COLORS};
+export const PALETTE=['#f5f0e5','#222a35','#dc393e','#eb9b38','#f2d452','#318755','#329ecc','#2864bc','#7954b6','#d567a2'];
+export const AVATAR_STORAGE_KEY='pocket-football.avatar.v1';
+export function normalizeAvatar(value:unknown):Avatar{
+ const v=(value&&typeof value==='object'?value:{}) as Record<string,unknown>,result={...DEFAULT_AVATAR};
+ result.name=typeof v.name==='string'?v.name.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,20)||DEFAULT_AVATAR.name:DEFAULT_AVATAR.name;
+ for(const key of COLOR_KEYS)if(typeof v[key]==='string'&&/^#[0-9a-fA-F]{6}$/.test(v[key] as string))result[key]=(v[key] as string).toLowerCase();
+ for(const key of Object.keys(AVATAR_OPTIONS) as AvatarChoice[])if((AVATAR_OPTIONS[key] as readonly unknown[]).includes(v[key]))(result as Record<string,unknown>)[key]=v[key];
+ const legacy:Record<string,string>={curls:'mod cut','side part':'middle part'};if(typeof v.hair==='string'&&legacy[v.hair])result.hair=legacy[v.hair] as Avatar['hair'];
+ if(!v.browColor)result.browColor=result.hairColor;if(!v.facialHairColor)result.facialHairColor=result.hairColor;
+ for(const [key,palette] of Object.entries(RESTRICTED_COLORS))result[key as AvatarColor]=nearest(result[key as AvatarColor],palette!);
+ if(isSkinId(v.skinId)){result.skinId=v.skinId;result.name=SHOP_SKINS.find(s=>s.id===v.skinId)!.name;}
+ return result;
+}
+export function readAvatar(storage:Pick<Storage,'getItem'>):Avatar|null{try{const raw=storage.getItem(AVATAR_STORAGE_KEY);if(!raw)return null;const v=JSON.parse(raw);return v?.version===1?normalizeAvatar(v):null;}catch{return null;}}
+export function writeAvatar(storage:Pick<Storage,'setItem'>,avatar:Avatar){const value=normalizeAvatar(avatar);storage.setItem(AVATAR_STORAGE_KEY,JSON.stringify(value));return value;}
+export function randomAvatar(rng=Math.random):Avatar{const a={...DEFAULT_AVATAR};for(const k of Object.keys(AVATAR_OPTIONS) as AvatarChoice[]){const choices=AVATAR_OPTIONS[k];(a as Record<string,unknown>)[k]=choices[Math.floor(rng()*choices.length)];}for(const k of COLOR_KEYS){const choices=RESTRICTED_COLORS[k]||PALETTE;a[k]=choices[Math.floor(rng()*choices.length)];}return a;}
+
+export type OutfitOption={name:string;patch:Partial<Avatar>};
+export const TOPS:OutfitOption[]=[
+ ['Ivory classic','#eee5d0','#233044','plain','short'],['Crimson classic','#b72d3b','#f0d5c2','plain','short'],['Royal classic','#2864bc','#e9e8de','plain','short'],['Onyx classic','#242831','#929da5','plain','short'],['Golden classic','#e5b737','#202d42','plain','short'],['Forest stripes','#277357','#e6e5d9','stripes','short'],['Rose stripe','#d98297','#522e46','chest band','short'],['Violet split','#7050a0','#d3b5df','split','short'],['Tangerine slash','#dd7634','#f4d8ad','diagonal','short'],['Ocean chevron','#207b95','#a4dbd9','chevron','short'],['Navy pinstripe','#243a5f','#b9cbd2','pinstripes','short'],['Sage shoulder','#81967c','#ecdec6','shoulders','short'],['Ivory long sleeve','#eee5d0','#263649','plain','long'],['Crimson long sleeve','#b72d3b','#ead4b1','shoulders','long'],['Royal long sleeve','#2864bc','#e4e4dc','chest band','long'],['Onyx long sleeve','#242831','#babbbb','pinstripes','long'],['Forest long sleeve','#277357','#d6b964','chevron','long'],['Sand long sleeve','#c6a77d','#6a5948','split','long'],['Plum long sleeve','#683d61','#cb98b6','diagonal','long'],['Sky long sleeve','#78b4ce','#eff0db','stripes','long']
+].map(([name,topColor,trimColor,pattern,sleeves])=>({name,patch:{top:'t-shirt',topColor,trimColor,pattern:pattern as Avatar['pattern'],sleeves:sleeves as Avatar['sleeves']}}));
+export const BOTTOMS:OutfitOption[]=[['Black shorts','#232832','shorts'],['Navy shorts','#243653','shorts'],['Ivory shorts','#e8dfca','shorts'],['Red shorts','#a9373c','shorts'],['Blue shorts','#2f60a8','shorts'],['Teal shorts','#267a78','shorts'],['Olive shorts','#73764e','shorts'],['Black pants','#232832','trousers'],['Grey pants','#737c82','trousers'],['Sand pants','#b89c75','trousers']].map(([name,bottomColor,bottom])=>({name,patch:{bottomColor,bottom:bottom as Avatar['bottom']}}));
+export const SOCKS:OutfitOption[]=[['Ivory','#eeeeeb'],['Black','#252b34'],['Red','#bc3543'],['Blue','#3466b1'],['Gold','#e5ba48'],['Green','#368268'],['Rose','#d37c99'],['Purple','#7954a6']].map(([name,sockColor])=>({name,patch:{sockColor}}));
+export const ACCESSORIES:OutfitOption[]=[{name:'Headband',patch:{headwear:'headband'}},{name:'Cap',patch:{headwear:'cap'}},{name:'Beanie',patch:{headwear:'beanie'}},{name:'Clear glasses',patch:{glasses:'clear'}},{name:'Sunglasses',patch:{glasses:'sunglasses'}},{name:'Round glasses',patch:{glasses:'round'}},{name:'Sport glasses',patch:{glasses:'sport'}},{name:'Studs',patch:{earrings:'studs'}},{name:'Hoops',patch:{earrings:'hoops'}},{name:'Wristbands',patch:{wristwear:'wristbands'}},{name:'Watch',patch:{wristwear:'watch'}},{name:'Chain',patch:{necklace:'chain'}},{name:'Pendant',patch:{necklace:'pendant'}},{name:'Beads',patch:{necklace:'beads'}}];
+
+export const SHOE_COLORS:OutfitOption[]=[['White','#f5f0e5'],['Black','#242932'],['Red','#c93843'],['Blue','#326dc5'],['Green','#368466'],['Gold','#e6b83d']].map(([name,shoeColor])=>({name,patch:{shoeColor}}));
