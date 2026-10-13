@@ -1,0 +1,17 @@
+{
+  "mode": "built-in image_gen",
+  "assets": [
+    {
+      "path": "/workspace/scratch/307ad49f02be/art/stadium.png",
+      "width": 1672,
+      "height": 941,
+      "prompt": "Use case: stylized-concept. Asset type: 16:9 wide raster background for a side-view pixel soccer game inspired by the shown A Small World Cup screenshots. Create just the empty nighttime stadium environment. Faithfully match gritty coarse low-resolution raster pixels, dithered texture, dark packed crowd, glowing golden amber floodlights, heavy moody vignette, olive green grass. Camera centered, nearly flat side-view game stage. Stadium fills top 60 percent with curved roof lighting and a dark indistinct packed crowd. Straight horizontal far grass edge at precisely 60 percent image height. Playable olive green turf from 60 to 94 percent image height, a subtle thin centerline down its center. Thin flat gray ground strip along bottom 6 percent. The pixel grid should resemble an old upscaled 320 pixel wide browser game, with chunky rectangular textured raster shading, not clean vector/cartoon illustration. No players, no people on pitch, no ball, no goals, no goal nets, no text, no score, no HUD, no logo. The stage must remain open and empty so game objects can be overlaid. Wide 16:9 landscape."
+    },
+    {
+      "path": "/workspace/scratch/307ad49f02be/art/ragdoll-atlas.png",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Use case: stylized-concept. Asset type: transparent pixel sprite parts atlas for ragdoll side-view soccer game, wide 3:2 aspect ratio. Exactly six isolated separate body parts arranged on an invisible 3 columns by 2 rows grid of equal cells, large clear transparent gaps between parts; each upright and centered within its own cell. Top-left: simple blocky rectangular royal blue jersey torso without arms or head. Top-middle: golden tan square human head with brown hair and tiny side face pointing right. Top-right: isolated golden tan left arm with small royal blue short sleeve at upper end and little blocky hand at bottom. Bottom-left: isolated golden tan right arm with small royal blue short sleeve at upper end and little blocky hand at bottom. Bottom-middle: isolated straight leg with blue shorts at top, golden tan knee, white sock, golden boot pointing right. Bottom-right: matching isolated other straight leg with blue shorts at top, golden tan knee, white sock, golden boot pointing right. Six parts total, no duplicates or complete assembled person. All parts are chunky crude pixel game art like the tiny A Small World Cup ragdoll characters, low-res block pixel silhouettes and gritty textured warm shading, rectangular geometry, very few pixel details, not polished cartoon or vector, no rounded smooth outlines. The body parts are designed to rotate independently in game. Transparent background with real alpha. No text, no labels, no grid lines, no cell outlines, no floor, no cast shadows outside body parts, no scene."
+    }
+  ]
+}

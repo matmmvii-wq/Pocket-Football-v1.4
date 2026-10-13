@@ -1,0 +1,35 @@
+{
+  "mode": "built-in image_gen",
+  "characters": [
+    {
+      "id": "alex",
+      "path": "/workspace/scratch/307ad49f02be/generated_images/exec-87e0afbf-af1a-4f01-8a8b-26a213c80522.png",
+      "prompt": "Create ONE complete full-body original voxel soccer character Alex, using reference only for its polished pixel/voxel game art style. Transparent background, no text, no sheet, no extra parts. Medium warm brown skin, dark brown short block curls with honey gold highlights, white rectangular eyes, compact square head. Full connected natural body, cohesive shirt shoulders with short sleeves, short relaxed arms ending at upper thigh, small understated block hands with no protruding thumbs. Legs connected under shorts, knees and socks without gaps. Consistent mild three-quarter view facing RIGHT, both eyes visible, standing straight arms down along sides, feet slightly separated. Head about 27% of full height, athletic compact proportions like reference uniform variations. Plain saturated MAGENTA shirt and sleeves, plain vivid GREEN shorts, CYAN knee socks, white boots: these are recoloring masks, preserve rich planar voxel shading but no logos, trim or designs. Center entire figure, large, ample transparent margin. Most important: looks like ONE coherent character designed all at once, not a collection of cubes; sleeve flows from shirt, no detached shoulder armor. Keep perspective mild for 2D ragdoll rig."
+    },
+    {
+      "id": "jordan",
+      "path": "/workspace/scratch/307ad49f02be/generated_images/exec-d5ea96bf-10a5-40ba-9127-330ca13d60e2.png",
+      "prompt": "Edit reference character into jordan: change ONLY skin, hair, facial hair: deep brown skin and black cuboid afro. Preserve exactly the same connected full-body geometry, pixel/voxel art, pose, overall bounding box and all clothing: magenta shirt, green shorts, cyan socks, white boots. Same square white eyes and right-facing mild three-quarter perspective. ONE whole character, no detached parts, no labels. Remove ALL background glow and shadows. Truly transparent empty background. Cohesive natural shoulders and anatomically connected limbs. Hands small simple blocks."
+    },
+    {
+      "id": "sam",
+      "path": "/workspace/scratch/307ad49f02be/generated_images/exec-64943569-87cf-43ad-847c-7cb262704811.png",
+      "prompt": "Edit reference character into sam: change ONLY skin, hair, facial hair: light golden tan skin and black stepped side-swept fringe. Preserve exactly the same connected full-body geometry, pixel/voxel art, pose, overall bounding box and all clothing: magenta shirt, green shorts, cyan socks, white boots. Same square white eyes and right-facing mild three-quarter perspective. ONE whole character, no detached parts, no labels. Remove ALL background glow and shadows. Truly transparent empty background. Cohesive natural shoulders and anatomically connected limbs. Hands small simple blocks."
+    },
+    {
+      "id": "casey",
+      "path": "/workspace/scratch/307ad49f02be/generated_images/exec-bef8f22c-95f0-4655-a376-2250a657a600.png",
+      "prompt": "Edit reference character into casey: change ONLY skin, hair, facial hair: fair peach skin and copper red angular short block spikes. Preserve exactly the same connected full-body geometry, pixel/voxel art, pose, overall bounding box and all clothing: magenta shirt, green shorts, cyan socks, white boots. Same square white eyes and right-facing mild three-quarter perspective. ONE whole character, no detached parts, no labels. Remove ALL background glow and shadows. Truly transparent empty background. Cohesive natural shoulders and anatomically connected limbs. Hands small simple blocks."
+    },
+    {
+      "id": "riley",
+      "path": "/workspace/scratch/307ad49f02be/generated_images/exec-31117aa8-dc6c-4f28-a534-56000936d06a.png",
+      "prompt": "Edit reference character into riley: change ONLY skin, hair, facial hair: dark brown skin and rectangular black short hanging locs. Preserve exactly the same connected full-body geometry, pixel/voxel art, pose, overall bounding box and all clothing: magenta shirt, green shorts, cyan socks, white boots. Same square white eyes and right-facing mild three-quarter perspective. ONE whole character, no detached parts, no labels. Remove ALL background glow and shadows. Truly transparent empty background. Cohesive natural shoulders and anatomically connected limbs. Hands small simple blocks."
+    },
+    {
+      "id": "morgan",
+      "path": "/workspace/scratch/307ad49f02be/generated_images/exec-da81761c-4b70-48cd-a60d-eaa5cbe965fb.png",
+      "prompt": "Edit reference character into morgan: change ONLY skin, hair, facial hair: olive tan skin and dark brown block quiff with small square dark beard. Preserve exactly the same connected full-body geometry, pixel/voxel art, pose, overall bounding box and all clothing: magenta shirt, green shorts, cyan socks, white boots. Same square white eyes and right-facing mild three-quarter perspective. ONE whole character, no detached parts, no labels. Remove ALL background glow and shadows. Truly transparent empty background. Cohesive natural shoulders and anatomically connected limbs. Hands small simple blocks."
+    }
+  ]
+}
