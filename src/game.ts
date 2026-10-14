@@ -167,45 +167,49 @@ export class Match {
  }
 
  private limitJoints(){
-
   const limits=[.65,2.15,2.15,1.15,1.15];
-
-  const anchors=[[0,11],[5,-16],[-5,-16],[0,-11],[0,-11]];
+  const torsoAnchors=[[0,-22],[-21,-17],[21,-17],[-11,22],[11,22]];
+  const limbAnchors=[[0,11],[5,-16],[-5,-16],[0,-11],[0,-11]];
+  const lengths=[2,0,0,2,2];
 
   for(const parts of this.players){
-
    const torso=parts[0];if(torso.isStatic)continue;
 
    parts.slice(1).forEach((part,i)=>{
-
     const angle=Math.atan2(Math.sin(part.angle-torso.angle),Math.cos(part.angle-torso.angle));
-
     const correction=Math.max(-limits[i],Math.min(limits[i],angle))-angle;
+    const [x,y]=limbAnchors[i];
 
-    if(!correction)return;
+    if(correction){
+     const c=Math.cos(part.angle),s=Math.sin(part.angle);
+     // Rotate about the actual joint so angular stops do not detach limbs.
+     rotateAt(part,correction,{x:part.position.x+c*x-s*y,y:part.position.y+s*x+c*y});
 
-    const [x,y]=anchors[i],c=Math.cos(part.angle),s=Math.sin(part.angle);
-
-    // A rotational joint stop pivots at the attachment, never at the limb's
-
-    // center, so hitting the limit cannot pull the shoulder/hip apart.
-
-    rotateAt(part,correction,{x:part.position.x+c*x-s*y,y:part.position.y+s*x+c*y});
-
-    const relative=part.angularVelocity-torso.angularVelocity;
-
-    if(relative*angle>0){
-
-     const shared=(part.angularVelocity*part.inertia+torso.angularVelocity*torso.inertia)/(part.inertia+torso.inertia);
-
-     Body.setAngularVelocity(part,shared);Body.setAngularVelocity(torso,shared);
-
+     const relative=part.angularVelocity-torso.angularVelocity;
+     if(relative*angle>0){
+      const shared=(part.angularVelocity*part.inertia+torso.angularVelocity*torso.inertia)/(part.inertia+torso.inertia);
+      Body.setAngularVelocity(part,shared);Body.setAngularVelocity(torso,shared);
+     }
     }
 
+    // Matter's constraint solver can leave a small residual separation after
+    // hard impacts. Correct only that residual, without welding rotations.
+    const [tx,ty]=torsoAnchors[i];
+    const tc=Math.cos(torso.angle),ts=Math.sin(torso.angle);
+    const pc=Math.cos(part.angle),ps=Math.sin(part.angle);
+    const ax=torso.position.x+tc*tx-ts*ty;
+    const ay=torso.position.y+ts*tx+tc*ty;
+    const bx=part.position.x+pc*x-ps*y;
+    const by=part.position.y+ps*x+pc*y;
+    const dx=ax-bx,dy=ay-by;
+    const distance=Math.hypot(dx,dy);
+    const target=lengths[i];
+    if(distance>target+1.5){
+     const fraction=(distance-target-1)/distance;
+     Body.translate(part,{x:dx*fraction,y:dy*fraction});
+    }
    });
-
   }
-
  }
 
  release(p:number){this.standing[p]=false;this.players[p].forEach(b=>Body.setStatic(b,false));}
