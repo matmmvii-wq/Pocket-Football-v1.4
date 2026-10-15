@@ -452,7 +452,7 @@ export class Match {
 
    this.players[1].forEach(part=>{const error=Math.atan2(Math.sin(part.angle),Math.cos(part.angle));Body.setAngularVelocity(part,Math.max(-.14,Math.min(.14,part.angularVelocity*.7-error*.045)));});
 
-   if(canAct&&this.aiTimer<=0&&this.cooldown[1]===0){this.botLaunch(0,-5);this.aiTimer=tuning.delay;
+   if(canAct&&this.aiTimer<=0&&this.cooldown[1]===0){this.botLaunch(0,-5);this.aiTimer=tuning.delay;}
 
    return;
 
