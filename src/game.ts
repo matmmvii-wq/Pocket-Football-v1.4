@@ -351,6 +351,23 @@ export class Match {
   const torso=this.players[1][0],p=torso.position,b=this.ball.position,v=this.ball.velocity;
 
   const tuning=DIFFICULTIES[this.difficulty];
+  // Share one predicted ball trajectory across all decisions this frame.
+  const horizon=this.difficulty==='hard'?72:this.difficulty==='normal'?54:38;
+  const trajectory:{x:number;y:number;vx:number;vy:number}[]=[];
+  let px=this.ball.position.x,py=this.ball.position.y;
+  let pvx=this.ball.velocity.x,pvy=this.ball.velocity.y;
+  trajectory.push({x:px,y:py,vx:pvx,vy:pvy});
+  for(let f=1;f<=horizon;f++){
+   const oldY=py;pvx*=.9997;pvy=pvy*.9997+.1528;px+=pvx;py+=pvy;
+   if(px<BALL_RADIUS){px=2*BALL_RADIUS-px;pvx=Math.abs(pvx)*.9;}
+   if(px>WIDTH-BALL_RADIUS){px=2*(WIDTH-BALL_RADIUS)-px;pvx=-Math.abs(pvx)*.9;}
+   const roof=GOAL_TOP-4-BALL_RADIUS;
+   const floor=(px<64+BALL_RADIUS||px>936-BALL_RADIUS)&&oldY<roof?roof:GROUND-BALL_RADIUS;
+   if(py>floor&&pvy>0){py=floor;pvy=-pvy*.9;}
+   if(py<BALL_RADIUS){py=BALL_RADIUS;pvy=Math.abs(pvy)*.9;}
+   trajectory.push({x:px,y:py,vx:pvx,vy:pvy});
+  }
+  const future=(frames:number)=>trajectory[Math.max(0,Math.min(horizon,Math.round(frames)))];
 
   this.aiTimer-=dt;this.botLaunchAge+=dt;this.botRecoveryRest=Math.max(0,this.botRecoveryRest-dt);
 
@@ -403,7 +420,8 @@ export class Match {
 
   const lob=v.x>2&&b.x>500&&b.y<260&&b.y<p.y-90&&b.x+v.x*20>p.x+35;
 
-  const danger=b.x>740&&v.x>1;
+  const imminent=trajectory.slice(1,Math.min(horizon,42)).find(q=>q.x>910&&q.vx>0&&q.y>GOAL_TOP-30);
+  const danger=!!imminent||(b.x>790&&v.x>2);
 
   if(this.botStuckTime>.12&&this.botRecoveryRest===0&&!danger){this.botRecoveryTime=.32;this.botRecoveryRest=1.2;this.botStuckTime=0;}
 
@@ -436,7 +454,7 @@ export class Match {
   }
 
   // Only retreat for a passed ball when it is still threatening our goal.
-  const threateningPass=passed&&(v.x>-.5||b.x>850);
+  const threateningPass=passed&&(v.x>.5||b.x>875||!!imminent);
   this.botState=threateningPass||lob?'defend':'charge';
 
   // Short flight lead is recalculated from current coordinates every frame.
@@ -453,9 +471,9 @@ export class Match {
 
   if(this.botState==='defend'){
 
-   tx=Math.min(930,Math.max(875,b.x+70));
-
-   ty=b.y<340?Math.max(180,Math.min(430,b.y+60)):455;
+   const defendBall=imminent||future(Math.min(24,Math.max(8,Math.abs(p.x-b.x)/Math.max(2,Math.abs(v.x)))));
+   tx=Math.min(925,Math.max(800,defendBall.x+35));
+   ty=defendBall.y<340?Math.max(210,Math.min(445,defendBall.y+45)):455;
 
    // Go over a low ball on the way back, rather than drive it into our net.
 
@@ -472,7 +490,7 @@ export class Match {
    const lookahead=this.difficulty==='hard'?56:this.difficulty==='normal'?44:30;
    let best=-Infinity;
    for(let lead=6;lead<=lookahead;lead+=2){
-    const ball=this.predictBall(lead);
+    const ball=future(lead);
     // Ignore predicted positions where the ball is resting on a goal roof.
     const roof=GOAL_TOP-4-BALL_RADIUS;
     if((ball.x<83||ball.x>917)&&Math.abs(ball.y-roof)<11&&Math.abs(ball.vx)<3)continue;
@@ -485,10 +503,12 @@ export class Match {
      // interception before the human can reach the same ball.
      const humanDistance=Math.hypot(enemy.x-ball.x,enemy.y-ball.y);
      const urgency=ball.vx>0&&ball.x>610?Math.min(85,(ball.x-610)*.22):0;
-     const score=160-lead*1.35-Math.abs(required-tuning.power*.82)*.9
-      +Math.min(35,offset*.38)+(ball.x<500?14:0)
-      +(humanDistance<140?20:0)-urgency
-      -(ball.x>820?45:0);
+     const humanFrames=humanDistance/18.5;
+     const contactQuality=Math.max(0,1-Math.abs(offset-48)/64);
+     const score=185-lead*1.65-Math.abs(required-tuning.power*.86)*.65
+      +contactQuality*24+(ball.x<500?18:0)
+      +(humanFrames>lead?12:-Math.min(25,(lead-humanFrames)*2))
+      -urgency-(ball.x>820?55:0)+(ball.vx<0?12:0);
      if(score>best){best=score;tx=sx;ty=sy;travel=lead;}
     }
    }
@@ -514,7 +534,7 @@ export class Match {
 
   if(grounded&&v.y<0&&b.y>400&&v.x>8&&arrival>0&&arrival<14){
 
-   const incoming=this.predictBall(Math.ceil(arrival));
+   const incoming=future(arrival);
 
    if(incoming.y>p.y-50&&incoming.y<p.y+40)return;
 
