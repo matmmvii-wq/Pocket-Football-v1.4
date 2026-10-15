@@ -465,22 +465,39 @@ export class Match {
 
   }else{
 
-   // First reachable contact on the live distance vector. This solves aim,
-
-   // not a search over game outcomes. Recompute while the launch cools down.
-
-   for(let lead=6;lead<=50;lead+=2){
-
+   // Evaluate several intercept times and contact points rather than
+   // committing to the first reachable ball position. A good contact
+   // approaches from the right, sending the ball toward the left goal.
+   const enemy=this.players[0][0].position;
+   const lookahead=this.difficulty==='hard'?56:this.difficulty==='normal'?44:30;
+   let best=-Infinity;
+   for(let lead=6;lead<=lookahead;lead+=2){
     const ball=this.predictBall(lead);
-
-    const goalBias=tuning.goalBias;
-
-    const sx=ball.x+goalBias,sy=Math.min(475,ball.y);
-
-    const vx=(sx-p.x)/lead,vy=(sy-p.y)/lead-.0764*lead;
-
-    if(vx<-.4&&Math.hypot(vx,vy)<=tuning.power){tx=sx;ty=sy;travel=lead;break;}
-
+    // Ignore predicted positions where the ball is resting on a goal roof.
+    const roof=GOAL_TOP-4-BALL_RADIUS;
+    if((ball.x<83||ball.x>917)&&Math.abs(ball.y-roof)<11&&Math.abs(ball.vx)<3)continue;
+    for(const offset of [24,40,56,72]){
+     const sx=Math.min(970,ball.x+offset),sy=Math.min(475,ball.y+Math.min(12,offset*.12));
+     const dx=(sx-p.x)/lead,dy=(sy-p.y)/lead-.0764*lead;
+     const required=Math.hypot(dx,dy);
+     if(dx>=-.2||required>tuning.power)continue;
+     // Reward quick, accurate approaches, useful attacking position and
+     // interception before the human can reach the same ball.
+     const humanDistance=Math.hypot(enemy.x-ball.x,enemy.y-ball.y);
+     const urgency=ball.vx>0&&ball.x>610?Math.min(85,(ball.x-610)*.22):0;
+     const score=160-lead*1.35-Math.abs(required-tuning.power*.82)*.9
+      +Math.min(35,offset*.38)+(ball.x<500?14:0)
+      +(humanDistance<140?20:0)-urgency
+      -(ball.x>820?45:0);
+     if(score>best){best=score;tx=sx;ty=sy;travel=lead;}
+    }
+   }
+   // When no attack is reachable, defend space rather than aim for an
+   // impossible interception far outside the bot's launch range.
+   if(best===-Infinity){
+    tx=Math.max(700,Math.min(880,b.x+v.x*12+75));
+    ty=Math.max(340,Math.min(465,b.y+v.y*12));
+    travel=Math.max(12,Math.min(36,Math.hypot(tx-p.x,ty-p.y)/tuning.power));
    }
 
   }
