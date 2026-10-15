@@ -26,8 +26,8 @@ export type CpuTactic='ATTACK'|'PRESS'|'RETREAT'|'GOALKEEP'|'RECOVER';
 export type CpuAction='launch'|'hold'|'wait-ground'|'wait-cooldown'|'wait-reaction';
 export type CpuStatus={state:CpuTactic;action:CpuAction;reason:string;target:{x:number;y:number};goalIn:number|null;aimRisk:number;grounded:boolean;time?:number;launch?:{x:number;y:number}};
 type CpuSample={x:number;y:number;vx:number;vy:number;frame:number;goal:number|null};
-type CpuOption={kind:'strike'|'block'|'move'|'recover';x:number;y:number;target:{x:number;y:number};frames:number;score:number;margin:number};
-type CpuProbe={touch:boolean;touchFrame:number;touchVX:number;touchVY:number;ownGoal:boolean;goal:boolean;forecast:number|null;endFrame:number;x:number;y:number;vx:number;vy:number;minX:number;cpuX:number;cpuY:number;cpuVX:number;cpuVY:number};
+type CpuOption={kind:'strike'|'block'|'move'|'recover'|'escape';x:number;y:number;target:{x:number;y:number};frames:number;score:number;margin:number};
+type CpuProbe={touch:boolean;touchFrame:number;touchVX:number;touchVY:number;ownGoal:boolean;goal:boolean;forecast:number|null;endFrame:number;x:number;y:number;vx:number;vy:number;minX:number;cpuX:number;cpuY:number;cpuVX:number;cpuVY:number;onGoalRoof:boolean};
 
 export const WIDTH=1000,HEIGHT=562,GROUND=510,GOAL_TOP=310;
 
@@ -318,6 +318,8 @@ export class Match {
  private botLaunchAge=1;
  private botStuckTime=0;
  private botQuietTime=0;
+ private botStillTime=0;
+ private botProgressAnchor={x:860,y:460};
  private botStateAge=0;
  private botProbeWait=0;
  private botWasReady=false;
@@ -330,6 +332,7 @@ export class Match {
   this.botTactic='ATTACK';this.botTarget={x:500,y:160};this.botOpening=true;
   this.botClock=0;this.botGroundTime=0;this.botLaunchAge=1;this.botStuckTime=0;
   this.botQuietTime=0;this.botStateAge=0;this.botProbeWait=0;this.botWasReady=false;this.botLastThreat=false;
+  this.botStillTime=0;this.botProgressAnchor={x:860,y:460};
   this.botAim=null;this.botAimAge=Infinity;this.botHistory=[];
   this.botStatus={state:'ATTACK',action:'hold',reason:'kickoff',target:{...this.botTarget},goalIn:null,aimRisk:0,grounded:true};
  }
@@ -346,9 +349,28 @@ export class Match {
   this.botAim={x:aim.x*scale,y:aim.y*scale};this.botAimAge=0;
  }
 
+ private botRoofSupport(player:number):number{
+  const parts=this.players[player];
+  for(const pair of this.engine.pairs.list){
+   if(!pair.isActive)continue;
+   const part=parts.includes(pair.bodyA)?pair.bodyA:parts.includes(pair.bodyB)?pair.bodyB:null;
+   if(!part)continue;
+   const roof=pair.bodyA===part?pair.bodyB:pair.bodyA;
+   // Only a real, upward-facing crossbar contact rearms a roof escape.
+   // Nearby flight, wall contact and the underside of the bar do not count.
+   if(roof.isStatic&&Math.abs(roof.position.y-GOAL_TOP)<1
+    &&Math.abs(pair.collision.normal.y)>.55&&part.position.y<roof.bounds.min.y+1
+    &&part.velocity.y>=-.7&&(roof.bounds.max.x<90||roof.bounds.min.x>WIDTH-90))return roof.position.x<WIDTH/2?-1:1;
+  }
+  return 0;
+ }
+
  private botSupported(player:number){
   const parts=this.players[player];
   if(this.standing[player])return true;
+  // A roof is a physical landing too. The tactical layer immediately gets
+  // the bot off it instead of treating a perched ragdoll as permanently airborne.
+  if(this.botRoofSupport(player))return true;
   // A rising foot grazing the turf is takeoff, not a fresh landing.
   const floor=parts.some(b=>b.bounds.max.y>=GROUND-3&&b.velocity.y>=-.7);
   if(floor)return true;
@@ -516,6 +538,15 @@ export class Match {
   return this.botShortlist(options,4);
  }
 
+ private botRoofEscapes(side:number,home:{x:number;y:number}):CpuOption[]{
+  const direction=-side,power=DIFFICULTIES[this.difficulty].power;
+  // Clear the inner edge with a small ordinary impulse, then descend. Launch
+  // speed, cooldown and gravity are exactly the same as for every other action.
+  return [[3,-2],[5,-2],[4,.75],[6,-4],[3,-4],[8,-1]].map(([x,y],i)=>({
+   kind:'escape',x:direction*Math.min(x,power*.7),y,target:home,frames:64,score:120-i,margin:0
+  }));
+ }
+
  private botCopyWorld(){
   const world=this.botSandbox||(this.botSandbox=new Match(true));
   Engine.clear(world.engine);
@@ -585,12 +616,17 @@ export class Match {
   const end=world.botCenter(1),ball=world.ball;
   const forecast=touch&&world.phase==='playing'?world.botTrajectory(90).find(q=>q.goal!==null)?.goal??null:null;
   return {touch,touchFrame,touchVX,touchVY,ownGoal:world.score[0]>0,goal:world.score[1]>0,forecast,endFrame:frame-1,
-   x:ball.position.x,y:ball.position.y,vx:ball.velocity.x,vy:ball.velocity.y,minX,cpuX:end.x,cpuY:end.y,cpuVX:end.vx,cpuVY:end.vy};
+   x:ball.position.x,y:ball.position.y,vx:ball.velocity.x,vy:ball.velocity.y,minX,cpuX:end.x,cpuY:end.y,cpuVX:end.vx,cpuVY:end.vy,onGoalRoof:world.botRoofSupport(1)!==0};
  }
 
  private botProbeScore(probe:CpuProbe,option:CpuOption,threat:boolean){
   if(probe.ownGoal)return -Infinity;
   const ball=this.ball.position,p=this.botCenter(1);
+  if(option.kind==='escape'){
+   if(probe.onGoalRoof||probe.cpuY<GOAL_TOP+35)return -Infinity;
+   return 230-Math.abs(probe.cpuX-option.target.x)*.24-Math.abs(probe.cpuY-option.target.y)*.12
+    -Math.abs(probe.cpuVX)*1.5+(probe.touch&&probe.touchVX<0?25:0);
+  }
   if(option.kind==='strike'||option.kind==='block'){
    if(!probe.touch&&!probe.goal)return -Infinity;
    const progress=ball.x-probe.minX;
@@ -623,7 +659,11 @@ export class Match {
   this.botClock+=dt;this.botStateAge+=dt;this.botLaunchAge+=dt;this.botAimAge+=dt;
   this.aiTimer=Math.max(0,this.aiTimer-dt);this.botProbeWait=Math.max(0,this.botProbeWait-dt);
   const p=this.botCenter(1),enemy=this.botCenter(0),ball=this.ball.position;
+  const goalRoof=this.botRoofSupport(1);
   const grounded=this.botSupported(1),ready=grounded&&this.botLaunchAge>=.28&&this.cooldown[1]<=0;
+  if(!grounded||Math.hypot(p.x-this.botProgressAnchor.x,p.y-this.botProgressAnchor.y)>16){
+   this.botStillTime=0;this.botProgressAnchor={x:p.x,y:p.y};
+  }else this.botStillTime+=dt;
   this.botGroundTime=grounded?this.botGroundTime+dt:0;
   const justReady=ready&&!this.botWasReady;this.botWasReady=ready;
   const path=this.botTrajectory(this.difficulty==='hard'?100:this.difficulty==='normal'?82:66);
@@ -641,6 +681,8 @@ export class Match {
   this.botQuietTime=this.ball.speed<2&&Math.hypot(enemy.vx,enemy.vy)<2?this.botQuietTime+dt:0;
   if(roof)this.botOpening=false;
   const home={x:Math.max(850,Math.min(920,ball.x+65)),y:462};
+  const usefulCover=!goalRoof&&grounded&&Math.abs(p.x-home.x)<=45&&p.y>GOAL_TOP+55;
+  const stalled=this.botStillTime>.65&&!usefulCover;
   let options:CpuOption[]=[],next:CpuTactic='GOALKEEP',reason='cover the shooting lane';
   let target={...home},hold=false;
 
@@ -650,6 +692,9 @@ export class Match {
    options=this.botIntercepts(path,true,incoming!.frame-1);
    const lane=path.find(q=>q.x>=Math.max(830,p.x)&&q.vx>0)||incoming!;
    target={x:Math.max(820,Math.min(935,lane.x)),y:Math.max(340,Math.min(480,lane.y))};
+   if(goalRoof)options.push(...this.botRoofEscapes(goalRoof,home));
+  }else if(goalRoof){
+   next='RECOVER';reason='leave the goal roof and return to play';options=this.botRoofEscapes(goalRoof,home);
   }else if(!grounded){
    const contact=this.botPassiveContact(path,18);
    if(contact!==null&&this.ball.position.x<p.x+25){next='ATTACK';reason='follow the committed interception';target={x:path[contact].x,y:path[contact].y};}
@@ -659,8 +704,8 @@ export class Match {
    const best=attacks[0];
    const favorable=best&&(this.botOpening||best.margin> -5||ball.x<510||this.botQuietTime>.65);
    const press=best&&ball.x>430&&best.margin>(this.difficulty==='hard'?1:this.difficulty==='normal'?3:6);
-   if(this.botStuckTime>.16&&!needsCover){
-    next='RECOVER';reason='recover with an ordinary launch';options=this.botMoves(home,true);
+   if(stalled||this.botStuckTime>.16&&!needsCover){
+    next='RECOVER';reason=stalled?'unstick and restore a useful position':'recover with an ordinary launch';options=this.botMoves(home,true);
    }else if(!roof&&best&&(favorable&&!needsCover||press&&!passed)){
     next=press&&ball.x>520&&!this.botOpening?'PRESS':'ATTACK';
     reason=this.botOpening?'contest kickoff':next==='PRESS'?'win a favorable interception':'strike toward the left goal';
@@ -670,7 +715,8 @@ export class Match {
    }else if(!needsCover&&!roof&&ball.x<730&&(this.botQuietTime>.65||!enemyNear)&&!best){
     next='ATTACK';reason='reposition on the defensive side of the ball';
     target={x:Math.max(180,Math.min(855,ball.x+120)),y:462};options=this.botMoves(target);
-   }else{hold=true;reason=roof?'cover the crossbar release':needsCover?'hold the shooting lane':'hold a useful defensive position';}
+   }else if(usefulCover){hold=true;reason=roof?'cover the crossbar release':needsCover?'hold the shooting lane':'hold a useful defensive position';}
+   else{next='RECOVER';reason='get into a usable defensive stance';options=this.botMoves(home,true);}
   }
 
   // A small score margin settles ATTACK/PRESS ties only. It never delays
@@ -688,10 +734,11 @@ export class Match {
   let selected:CpuOption|null=null,bestScore=-Infinity;
   // Test HOLD as an action, including the body's current momentum and spin.
   // Do not jump out of a save that the actual ragdoll already makes.
-  if(danger||this.botPassiveContact(path,12)!==null){
+  if(!goalRoof&&(danger||this.botPassiveContact(path,12)!==null)){
    const duration=danger?Math.min(80,incoming!.frame+18):36;
    const stay=this.botRollout(null,duration);
-   if(!stay.ownGoal&&(stay.touch||stay.goal)&&!(stay.x>900&&stay.vx>1)){
+   const usefulContact=stay.touch&&(danger||Math.hypot(stay.x-ball.x,stay.y-ball.y)>25||Math.hypot(stay.vx,stay.vy)>3);
+   if(!stay.ownGoal&&(usefulContact||stay.goal)&&!(stay.x>900&&stay.vx>1)){
     this.botProbeWait=.05;this.botReport('hold',danger?'body already blocks the incoming shot':'let the ball reach the existing contact',goalIn,aimRisk,true);return;
    }
   }
@@ -717,6 +764,18 @@ export class Match {
    // alternatives have been compared (or a save/goal verified), act now.
    if(selected&&(danger||probe.goal||option.kind==='recover'||checked>=2))break;
    if(checked>=4&&!danger)break;
+  }
+  if(!selected&&goalRoof){
+   // Never return to the old permanent wait-ground/hold state on a bar.
+   // If every modeled line concedes, choose the exit that delays it longest.
+   const exits=this.botRoofEscapes(goalRoof,home);let exitScore=-Infinity;
+   for(const option of exits){
+    const probe=this.botRollout(option,84);
+    const score=(probe.ownGoal?-1000+probe.endFrame*4:0)+(probe.onGoalRoof?-400:100)
+     +Math.min(100,probe.cpuY-p.y)-Math.abs(probe.cpuX-home.x)*.1;
+    if(score>exitScore){exitScore=score;selected=option;}
+   }
+   selected=selected||exits[0];reason=danger?'leave the roof to recover the shooting lane':'leave the goal roof and return to play';
   }
   if(!selected&&!danger&&(next==='ATTACK'||next==='PRESS')){
    // An apparent interception can fail once limbs, spin and the opponent are
@@ -750,6 +809,7 @@ export class Match {
   if(selected&&this.launch(1,selected.x,selected.y)){
    this.botOpening=false;this.botLaunchAge=0;this.botGroundTime=0;this.botWasReady=false;
    this.botStuckTime=0;this.botProbeWait=0;this.aiTimer=this.difficulty==='hard'?0:DIFFICULTIES[this.difficulty].delay;
+   this.botStillTime=0;this.botProgressAnchor={x:p.x,y:p.y};
    this.botTarget={...selected.target};this.botReport('launch',reason,goalIn,aimRisk,true,{x:selected.x,y:selected.y});
   }else{
    // A bounded recheck is a deliberate hold, never a new reaction delay.
