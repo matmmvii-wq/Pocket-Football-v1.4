@@ -210,7 +210,7 @@ export class Match {
 
  release(p:number){this.standing[p]=false;this.players[p].forEach(b=>Body.setStatic(b,false));}
 
- resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.botTacticHold=0;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=DIFFICULTIES[this.difficulty].delay;}
+ resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.botTacticHold=0;this.botOpening=true;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=DIFFICULTIES[this.difficulty].delay;}
 
 
 
@@ -315,6 +315,8 @@ export class Match {
  // Tactical hysteresis: retain a decision until the alternative is clearly
  // better, avoiding charge/defend oscillation near the ball.
  private botTacticHold=0;
+ // Tactical opening: contest the kickoff ball after each reset.
+ private botOpening=true;
 
 
  private botLaunch(x:number,y:number){
@@ -462,18 +464,32 @@ export class Match {
    return;
   }
 
-  // Only retreat for a passed ball when it is still threatening our goal.
-  // Utility arbitration: defense takes priority for a real incoming shot;
-  // otherwise avoid changing tactics on tiny ball-position fluctuations.
-  // This is the hysteresis pattern used in established utility AI systems.
-  const threatScore=(imminent?120:0)+(b.x>790&&v.x>1?30:0)
-   +(passed&&v.x>1?22:0)+(lob?18:0);
-  const attackScore=(b.x<740?48:18)+(v.x<0?18:0)+(passed&&v.x<0?15:0);
-  const preferred=threatScore>attackScore+8?'defend':'charge';
+  // Tactical cycle: contest the kickoff, attack only when a useful shot is
+  // available, otherwise retreat and guard the right goal. Press only if the
+  // predicted interception is genuinely favorable.
+  const enemy=this.players[0][0].position;
+  const homeX=865, homeY=455;
+  const ballComingHome=v.x>1.2&&b.x>570;
+  const ownGoalThreat=!!imminent||ballComingHome&&b.x>760;
+  const homeDistance=Math.hypot(p.x-homeX,p.y-homeY);
+  const ballDistance=Math.hypot(b.x-p.x,b.y-p.y);
+  const enemyDistance=Math.hypot(b.x-enemy.x,b.y-enemy.y);
+  const ballReach=ballDistance/Math.max(1,tuning.power);
+  const enemyReach=enemyDistance/18.5;
+  const attackingSide=p.x>b.x+12;
+  // A shot is promising when the bot can get to the right of the ball and
+  // strike it toward the left goal before the human can intervene.
+  const shotOpportunity=attackingSide&&b.x<820&&ballReach<25
+   &&(enemyReach>ballReach*.75||b.x<460)&&!ownGoalThreat;
+  const pressOpportunity=!ownGoalThreat&&b.x>450&&b.x<840
+   &&ballReach<17&&ballReach+3<enemyReach&&attackingSide;
+  // The opening commitment ends after the first launch; a reset rearms it.
+  const openingAttack=this.botOpening;
+  const wantsAttack=openingAttack||shotOpportunity||pressOpportunity;
+  const preferred=ownGoalThreat?'defend':wantsAttack?'charge':'defend';
   if(preferred!==this.botState){
-   if(this.botTacticHold===0||!!imminent){this.botState=preferred;this.botTacticHold=.22;}
+   if(this.botTacticHold===0||ownGoalThreat){this.botState=preferred;this.botTacticHold=.16;}
   }
-
 
   // Short flight lead is recalculated from current coordinates every frame.
 
@@ -488,17 +504,23 @@ export class Match {
   let travel=frames;
 
   if(this.botState==='defend'){
-
-   const defendBall=imminent||future(Math.min(24,Math.max(8,Math.abs(p.x-b.x)/Math.max(2,Math.abs(v.x)))));
-   tx=Math.min(925,Math.max(800,defendBall.x+35));
-   ty=defendBall.y<340?Math.max(210,Math.min(445,defendBall.y+45)):455;
-
-   // Go over a low ball on the way back, rather than drive it into our net.
-
-   if(p.x<b.x&&b.x-p.x<170&&b.y>410)ty=350;
-
-   travel=Math.max(18,Math.min(38,Math.abs(tx-p.x)/tuning.power));
-
+   if(ownGoalThreat){
+    // Predict the crossing at our defensive line, not the ball's current spot.
+    const crossing=trajectory.find(q=>q.x>=865&&q.vx>0&&q.y>GOAL_TOP-35);
+    const defendBall=crossing||imminent||future(Math.min(20,Math.max(6,ballDistance/Math.max(3,Math.abs(v.x)))));
+    tx=Math.max(820,Math.min(920,defendBall.x));
+    ty=Math.max(340,Math.min(465,defendBall.y+20));
+    // A shot already lined up with the standing goalkeeper is best blocked
+    // by holding position rather than jumping out of its path.
+    if(grounded&&Math.abs(p.x-tx)<35&&Math.abs(p.y-ty)<65){
+     this.botTarget={x:tx,y:ty};return;
+    }
+   }else{
+    // No worthwhile attack: go HOME, not to a random ball-side position.
+    tx=homeX;ty=homeY;
+    if(homeDistance<60){this.botTarget={x:homeX,y:homeY};return;}
+   }
+   travel=Math.max(10,Math.min(38,Math.hypot(tx-p.x,ty-p.y)/Math.max(5,tuning.power*.8)));
   }else{
 
    // Evaluate several intercept times and contact points rather than
@@ -579,7 +601,7 @@ export class Match {
 
   const length=Math.hypot(vx,vy),scale=Math.min(1,tuning.power/Math.max(1,length));
 
-  if(this.botLaunch(vx*scale,vy*scale))this.aiTimer=tuning.delay;
+  if(this.botLaunch(vx*scale,vy*scale)){this.botOpening=false;this.aiTimer=tuning.delay;}
 
  }
 
