@@ -210,7 +210,7 @@ export class Match {
 
  release(p:number){this.standing[p]=false;this.players[p].forEach(b=>Body.setStatic(b,false));}
 
- resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.botTacticHold=0;this.botOpening=true;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=this.difficulty==='hard'?0:DIFFICULTIES[this.difficulty].delay;}
+ resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.botTacticHold=0;this.botOpening=true;this.botLastChallenge=0;this.botSafeFrames=0;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=this.difficulty==='hard'?0:DIFFICULTIES[this.difficulty].delay;}
 
 
 
@@ -317,6 +317,9 @@ export class Match {
  private botTacticHold=0;
  // Tactical opening: contest the kickoff ball after each reset.
  private botOpening=true;
+ // Tactical memory: prevents repeatedly challenging the same losing ball.
+ private botLastChallenge=0;
+ private botSafeFrames=0;
 
 
  private botLaunch(x:number,y:number){
@@ -416,8 +419,11 @@ export class Match {
   // takeoff cannot rearm it; settle after landing before another shot/block.
 
   // Hard responds faster after a real landing, without allowing midair relaunches.
-  const canAct=this.botGroundTime>=(this.difficulty==='hard'?.025:.08)
-   &&this.botLaunchAge>=(this.difficulty==='hard'?.30:.6);
+  // The physical cooldown already prevents rapid relaunches. On Hard,
+  // act on the first stable ground contact instead of waiting in place.
+  const canAct=this.botGroundTime>=(this.difficulty==='hard'?0:.08)
+   &&this.botLaunchAge>=(this.difficulty==='hard'?.28:.6)
+   &&grounded;
 
   const tangled=grounded&&torso.speed<5&&(Math.abs(angle)>1.15||this.players[1][1].position.y>p.y+8);
 
@@ -434,9 +440,9 @@ export class Match {
   const danger=!!imminent||(b.x>830&&v.x>3&&b.y>GOAL_TOP);
 
 
-  if(this.botStuckTime>.12&&this.botRecoveryRest===0&&!danger){this.botRecoveryTime=.32;this.botRecoveryRest=1.2;this.botStuckTime=0;}
+  if(this.botStuckTime>(this.difficulty==='hard'?.32:.12)&&this.botRecoveryRest===0&&!danger){this.botRecoveryTime=.32;this.botRecoveryRest=1.2;this.botStuckTime=0;}
 
-  if(this.botRecoveryTime>0&&!danger&&grounded){
+  if(this.botRecoveryTime>0&&!danger&&grounded&&this.difficulty!=='hard'){
 
    this.botState='recover';this.botTarget={x:p.x,y:Math.max(80,p.y-50)};
 
@@ -458,37 +464,50 @@ export class Match {
   const onRoof=(b.x>=BALL_RADIUS&&b.x<=82)||(b.x>=918&&b.x<=WIDTH-BALL_RADIUS);
   const roofResting=onRoof&&Math.abs(b.y-roofY)<=9
    &&Math.abs(v.y)<=2.2&&Math.abs(v.x)<=3;
-  if(roofResting){
-   this.botState='defend';
-   this.botTarget={x:880,y:455};
-   return;
-  }
+  // A roof-resting ball is not an attacking target, but never stop
+  // the decision loop: the goalkeeper still needs to return home.
+  if(roofResting){this.botOpening=false;}
 
   // Tactical cycle: contest the kickoff, attack only when a useful shot is
   // available, otherwise retreat and guard the right goal. Press only if the
   // predicted interception is genuinely favorable.
-  const enemy=this.players[0][0].position;
+  const enemyBody=this.players[0][0],enemy=enemyBody.position;
   const homeX=865, homeY=455;
+  // The human's position AND momentum matter: don't race a ball the human
+  // already controls, and defend earlier when a human is lining up a shot.
+  const enemyVelocity=enemyBody.velocity;
+  const humanClosing=Math.max(0,
+   ((b.x-enemy.x)*enemyVelocity.x+(b.y-enemy.y)*enemyVelocity.y)/
+   Math.max(1,Math.hypot(b.x-enemy.x,b.y-enemy.y)));
+  const humanReady=this.standing[0]||this.cooldown[0]===0;
+  const humanPressure=humanReady&&enemy.x<850&&enemy.x>360
+   &&Math.hypot(b.x-enemy.x,b.y-enemy.y)<210;
   const ballComingHome=v.x>1.2&&b.x>570;
   const ownGoalThreat=!!imminent||ballComingHome&&b.x>760;
   const homeDistance=Math.hypot(p.x-homeX,p.y-homeY);
   const ballDistance=Math.hypot(b.x-p.x,b.y-p.y);
   const enemyDistance=Math.hypot(b.x-enemy.x,b.y-enemy.y);
   const ballReach=ballDistance/Math.max(1,tuning.power);
-  const enemyReach=enemyDistance/18.5;
+  const enemyReach=enemyDistance/Math.max(9,18.5+humanClosing*.4);
   const attackingSide=p.x>b.x+12;
   // A shot is promising when the bot can get to the right of the ball and
   // strike it toward the left goal before the human can intervene.
   const shotOpportunity=attackingSide&&b.x<820&&ballReach<25
    &&(enemyReach>ballReach*.75||b.x<460)&&!ownGoalThreat;
-  const pressOpportunity=!ownGoalThreat&&b.x>450&&b.x<840
-   &&ballReach<17&&ballReach+3<enemyReach&&attackingSide;
+  const pressOpportunity=!ownGoalThreat&&b.x>420&&b.x<840
+   &&ballReach<19&&ballReach+2<enemyReach&&attackingSide
+   &&this.botLastChallenge<=0;
+  this.botLastChallenge=Math.max(0,this.botLastChallenge-dt);
+  // Anticipate a human attack even before the ball is goal-bound.
+  const preparingShot=humanPressure&&enemy.x<760
+   &&(b.x>enemy.x-35||v.x>0);
+  const needsGoalCover=ownGoalThreat||preparingShot&&!pressOpportunity;
   // The opening commitment ends after the first launch; a reset rearms it.
   const openingAttack=this.botOpening;
-  const wantsAttack=openingAttack||shotOpportunity||pressOpportunity;
-  const preferred=ownGoalThreat?'defend':wantsAttack?'charge':'defend';
+  const wantsAttack=!roofResting&&(openingAttack||shotOpportunity||pressOpportunity);
+  const preferred=needsGoalCover?'defend':wantsAttack?'charge':'defend';
   if(preferred!==this.botState){
-   if(this.botTacticHold===0||ownGoalThreat){this.botState=preferred;this.botTacticHold=this.difficulty==='hard'?.035:.16;}
+   if(this.botTacticHold===0||needsGoalCover){this.botState=preferred;this.botTacticHold=this.difficulty==='hard'?.035:.16;}
   }
 
   // Short flight lead is recalculated from current coordinates every frame.
@@ -512,13 +531,22 @@ export class Match {
     ty=Math.max(340,Math.min(465,defendBall.y+20));
     // A shot already lined up with the standing goalkeeper is best blocked
     // by holding position rather than jumping out of its path.
-    if(grounded&&Math.abs(p.x-tx)<35&&Math.abs(p.y-ty)<65){
+    if(grounded&&Math.abs(p.x-tx)<22&&Math.abs(p.y-ty)<40){
      this.botTarget={x:tx,y:ty};return;
     }
    }else{
-    // No worthwhile attack: go HOME, not to a random ball-side position.
-    tx=homeX;ty=homeY;
-    if(homeDistance<60){this.botTarget={x:homeX,y:homeY};return;}
+    // Goal-side positioning: occupy the lane between the ball/human and net.
+    // Retreat decisively if stranded upfield; otherwise shade toward the
+    // predicted shot lane instead of camping at a fixed point.
+    const defensiveLine=preparingShot?850:homeX;
+    const shotLead=future(Math.min(24,Math.max(5,(defensiveLine-b.x)/Math.max(3,Math.abs(v.x)))));
+    tx=homeDistance>130?homeX:defensiveLine;
+    ty=preparingShot?Math.max(380,Math.min(465,shotLead.y+15)):homeY;
+    // Holding position is a real action only when correctly positioned
+    // AND the current shot lane is already covered.
+    if(homeDistance<32&&grounded&&!preparingShot){
+     this.botTarget={x:homeX,y:homeY};return;
+    }
    }
    travel=Math.max(10,Math.min(38,Math.hypot(tx-p.x,ty-p.y)/Math.max(5,tuning.power*.8)));
   }else{
@@ -571,6 +599,8 @@ export class Match {
 
   this.botTarget={x:tx,y:ty};
 
+  // Decisions continue every frame, but physical launches are only possible
+  // once grounded. No extra artificial delay on Hard.
   if(!canAct||this.aiTimer>0||this.cooldown[1]>0)return;
 
   // Keep a grounded body in the path of an imminent low shot instead of
@@ -601,7 +631,11 @@ export class Match {
 
   const length=Math.hypot(vx,vy),scale=Math.min(1,tuning.power/Math.max(1,length));
 
-  if(this.botLaunch(vx*scale,vy*scale)){this.botOpening=false;this.aiTimer=this.difficulty==='hard'?0:tuning.delay;}
+  if(this.botLaunch(vx*scale,vy*scale)){
+   this.botOpening=false;
+   if(this.botState==='charge'&&!openingAttack)this.botLastChallenge=.16;
+   this.aiTimer=this.difficulty==='hard'?0:tuning.delay;
+  }
 
  }
 
