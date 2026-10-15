@@ -210,7 +210,7 @@ export class Match {
 
  release(p:number){this.standing[p]=false;this.players[p].forEach(b=>Body.setStatic(b,false));}
 
- resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=DIFFICULTIES[this.difficulty].delay;}
+ resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.botTacticHold=0;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=DIFFICULTIES[this.difficulty].delay;}
 
 
 
@@ -312,6 +312,11 @@ export class Match {
 
  private botLaunchAge=1;
 
+ // Tactical hysteresis: retain a decision until the alternative is clearly
+ // better, avoiding charge/defend oscillation near the ball.
+ private botTacticHold=0;
+
+
  private botLaunch(x:number,y:number){
 
   if(!this.launch(1,x,y))return false;
@@ -369,7 +374,7 @@ export class Match {
   }
   const future=(frames:number)=>trajectory[Math.max(0,Math.min(horizon,Math.round(frames)))];
 
-  this.aiTimer-=dt;this.botLaunchAge+=dt;this.botRecoveryRest=Math.max(0,this.botRecoveryRest-dt);
+  this.aiTimer-=dt;this.botLaunchAge+=dt;this.botRecoveryRest=Math.max(0,this.botRecoveryRest-dt);this.botTacticHold=Math.max(0,this.botTacticHold-dt);
 
   const angle=Math.atan2(Math.sin(torso.angle),Math.cos(torso.angle));
 
@@ -420,8 +425,12 @@ export class Match {
 
   const lob=v.x>2&&b.x>500&&b.y<260&&b.y<p.y-90&&b.x+v.x*20>p.x+35;
 
-  const imminent=trajectory.slice(1,Math.min(horizon,42)).find(q=>q.x>910&&q.vx>0&&q.y>GOAL_TOP-30);
-  const danger=!!imminent||(b.x>790&&v.x>2);
+  // Project a shot across the actual goal mouth, not just anywhere near
+  // the right wall. A high ball above the crossbar is not a scoring threat.
+  const imminent=trajectory.slice(1,Math.min(horizon,42)).find(q=>
+   q.x>=940-BALL_RADIUS&&q.vx>0&&q.y>GOAL_TOP+BALL_RADIUS*.25&&q.y<GROUND-BALL_RADIUS*.25);
+  const danger=!!imminent||(b.x>830&&v.x>3&&b.y>GOAL_TOP);
+
 
   if(this.botStuckTime>.12&&this.botRecoveryRest===0&&!danger){this.botRecoveryTime=.32;this.botRecoveryRest=1.2;this.botStuckTime=0;}
 
@@ -454,8 +463,17 @@ export class Match {
   }
 
   // Only retreat for a passed ball when it is still threatening our goal.
-  const threateningPass=passed&&(v.x>.5||b.x>875||!!imminent);
-  this.botState=threateningPass||lob?'defend':'charge';
+  // Utility arbitration: defense takes priority for a real incoming shot;
+  // otherwise avoid changing tactics on tiny ball-position fluctuations.
+  // This is the hysteresis pattern used in established utility AI systems.
+  const threatScore=(imminent?120:0)+(b.x>790&&v.x>1?30:0)
+   +(passed&&v.x>1?22:0)+(lob?18:0);
+  const attackScore=(b.x<740?48:18)+(v.x<0?18:0)+(passed&&v.x<0?15:0);
+  const preferred=threatScore>attackScore+8?'defend':'charge';
+  if(preferred!==this.botState){
+   if(this.botTacticHold===0||!!imminent){this.botState=preferred;this.botTacticHold=.22;}
+  }
+
 
   // Short flight lead is recalculated from current coordinates every frame.
 
@@ -487,6 +505,12 @@ export class Match {
    // committing to the first reachable ball position. A good contact
    // approaches from the right, sending the ball toward the left goal.
    const enemy=this.players[0][0].position;
+   // Adapted from Yuka's PursuitBehavior: lookahead grows with distance
+   // and shrinks as the target and pursuer move faster. Here we use it
+   // to prioritize reachable ballistic contact times, not steering forces.
+   // Source: github.com/Mugen87/yuka/blob/master/src/steering/behaviors/PursuitBehavior.js
+   const pursuitLead=Math.max(6,Math.min(50,
+    Math.hypot(b.x-p.x,b.y-p.y)/(tuning.power+Math.hypot(v.x,v.y))));
    const lookahead=this.difficulty==='hard'?56:this.difficulty==='normal'?44:30;
    let best=-Infinity;
    for(let lead=6;lead<=lookahead;lead+=2){
@@ -506,6 +530,7 @@ export class Match {
      const humanFrames=humanDistance/18.5;
      const contactQuality=Math.max(0,1-Math.abs(offset-48)/64);
      const score=185-lead*1.65-Math.abs(required-tuning.power*.86)*.65
+      -Math.abs(lead-pursuitLead)*.18
       +contactQuality*24+(ball.x<500?18:0)
       +(humanFrames>lead?12:-Math.min(25,(lead-humanFrames)*2))
       -urgency-(ball.x>820?55:0)+(ball.vx<0?12:0);
