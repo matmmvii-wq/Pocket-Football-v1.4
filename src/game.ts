@@ -210,7 +210,7 @@ export class Match {
 
  release(p:number){this.standing[p]=false;this.players[p].forEach(b=>Body.setStatic(b,false));}
 
- resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.botTacticHold=0;this.botOpening=true;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=DIFFICULTIES[this.difficulty].delay;}
+ resetPositions(){this.roofRestTime=0;this.lastBallImpact=-Infinity;this.pendingBallImpact=null;this.botState='charge';this.botTarget={x:500,y:160};this.botStuckTime=0;this.botRecoveryTime=0;this.botRecoveryRest=0;this.botGroundTime=0;this.botLaunchAge=1;this.botTacticHold=0;this.botOpening=true;this.players.forEach((parts,p)=>{const x=p?860:140,poses=[[x,461],[x,426],[x-26,460],[x+26,460],[x-11,497],[x+11,497]];parts.forEach((b,i)=>{Body.setStatic(b,false);Body.setPosition(b,{x:poses[i][0],y:poses[i][1]});Body.setAngle(b,0);Body.setVelocity(b,{x:0,y:0});Body.setAngularVelocity(b,0);b.collisionFilter.mask=p===1&&this.mode==='practice'?0:0xFFFFFFFF;Body.setStatic(b,true);});});this.standing=[true,true];Body.setPosition(this.ball,{x:500,y:160});Body.setVelocity(this.ball,{x:(Math.random()-.5)*5,y:-3});Body.setAngularVelocity(this.ball,.08);this.cooldown=[0,0];this.aiTimer=this.difficulty==='hard'?0:DIFFICULTIES[this.difficulty].delay;}
 
 
 
@@ -416,8 +416,8 @@ export class Match {
   // takeoff cannot rearm it; settle after landing before another shot/block.
 
   // Hard responds faster after a real landing, without allowing midair relaunches.
-  const canAct=this.botGroundTime>=(this.difficulty==='hard'?.06:.08)
-   &&this.botLaunchAge>=(this.difficulty==='hard'?.48:.6);
+  const canAct=this.botGroundTime>=(this.difficulty==='hard'?.025:.08)
+   &&this.botLaunchAge>=(this.difficulty==='hard'?.30:.6);
 
   const tangled=grounded&&torso.speed<5&&(Math.abs(angle)>1.15||this.players[1][1].position.y>p.y+8);
 
@@ -446,7 +446,7 @@ export class Match {
 
    this.players[1].forEach(part=>{const error=Math.atan2(Math.sin(part.angle),Math.cos(part.angle));Body.setAngularVelocity(part,Math.max(-.14,Math.min(.14,part.angularVelocity*.7-error*.045)));});
 
-   if(canAct&&this.aiTimer<=0&&this.cooldown[1]===0){this.botLaunch(0,-5);this.aiTimer=tuning.delay;}
+   if(canAct&&this.aiTimer<=0&&this.cooldown[1]===0){this.botLaunch(0,-5);this.aiTimer=this.difficulty==='hard'?0:tuning.delay;}
 
    return;
 
@@ -488,7 +488,7 @@ export class Match {
   const wantsAttack=openingAttack||shotOpportunity||pressOpportunity;
   const preferred=ownGoalThreat?'defend':wantsAttack?'charge':'defend';
   if(preferred!==this.botState){
-   if(this.botTacticHold===0||ownGoalThreat){this.botState=preferred;this.botTacticHold=.16;}
+   if(this.botTacticHold===0||ownGoalThreat){this.botState=preferred;this.botTacticHold=this.difficulty==='hard'?.035:.16;}
   }
 
   // Short flight lead is recalculated from current coordinates every frame.
@@ -601,7 +601,7 @@ export class Match {
 
   const length=Math.hypot(vx,vy),scale=Math.min(1,tuning.power/Math.max(1,length));
 
-  if(this.botLaunch(vx*scale,vy*scale)){this.botOpening=false;this.aiTimer=tuning.delay;}
+  if(this.botLaunch(vx*scale,vy*scale)){this.botOpening=false;this.aiTimer=this.difficulty==='hard'?0:tuning.delay;}
 
  }
 
