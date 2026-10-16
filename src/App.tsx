@@ -1,9 +1,9 @@
-import {DEFAULT_DIFFICULTY,DIFFICULTIES} from './difficulty';
+import {DIFFICULTIES} from './difficulty';
 import {CupRewardScreen} from './CupRewardScreen';
 import {claimCupReward,cupOutcome} from './rewards';
 import {Shop} from './ShopScreen';
 import {SkinId,isSkinId} from './shopCatalog';
-import {Wallet,emptyWallet,readWallet,writeWallet,purchaseSkin,equipSkin,redeemTestCoins,TEST_COIN_CODE,skinAvatar} from './shop';
+import {Wallet,readWallet,writeWallet,purchaseSkin,equipSkin,redeemTestCoins,TEST_COIN_CODE,skinAvatar} from './shop';
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import {CharacterCreator} from './CharacterCreator';
@@ -19,38 +19,51 @@ import {TitleScreen,TitleMode,launchTitleMode} from './TitleScreen';
 import {Match,TEAMS,paint,makeParts,cropSprite,GameArt,Aim,Mode,Difficulty} from './game';
 import {Cup,createCup,completeRound,playerFixture,roundToken,stageLabel} from './cup';
 import {CupSelect,CupHub} from './CupScreens';
+import {platform,isGameplay} from './platform';
+import {GameAudio} from './audio';
+import {readPreferences,writePreferences,readSavedCup,writeSavedCup} from './progress';
 type Screen='title'|'select'|'cup'|'match'|'result'|'settings'|'rooms'|'creator'|'shop';
 const LEVELS:Difficulty[]=['easy','normal','hard'];
 export default function Home(){
- const canvas=useRef<HTMLCanvasElement>(null),frame=useRef<HTMLDivElement>(null),game=useRef<Match|null>(null),art=useRef<GameArt|null>(null),drag=useRef<{x:number;y:number}|null>(null),aim=useRef<Aim|null>(null),audio=useRef<AudioContext|null>(null);
- const [screen,setScreen]=useState<Screen>('title'),[ready,setReady]=useState(false),[assetError,setAssetError]=useState(false),[mode,setMode]=useState<Mode>('normal'),[difficulty,setDifficulty]=useState<Difficulty>(DEFAULT_DIFFICULTY),[duration,setDuration]=useState(45),[sound,setSound]=useState(true),[team,setTeam]=useState('ARG'),[paused,setPaused]=useState(false),[hud,setHud]=useState({score:[0,0],phase:'idle',message:'',time:45,teams:['ARG','BRA'],sudden:false});
- const [cupCharacter,setCupCharacter]=useState(0);const stadiums=useRef<CanvasImageSource[]>([]),lastStadium=useRef(-1);
+ const canvas=useRef<HTMLCanvasElement>(null),frame=useRef<HTMLDivElement>(null),game=useRef<Match|null>(null),art=useRef<GameArt|null>(null),drag=useRef<{x:number;y:number}|null>(null),aim=useRef<Aim|null>(null);
+ const [preferences]=useState(()=>readPreferences(platform.storage)),[audio]=useState(()=>new GameAudio(platform)),[sdkMuted,setSdkMuted]=useState(platform.audioMuted),[saveError,setSaveError]=useState('');
+ const visibilityPause=useRef(false);
+ const [screen,setScreen]=useState<Screen>('title'),[ready,setReady]=useState(false),[assetError,setAssetError]=useState(false),[mode,setMode]=useState<Mode>('normal'),[difficulty,setDifficulty]=useState<Difficulty>(preferences.difficulty),[duration,setDuration]=useState(preferences.duration),[sound,setSound]=useState(preferences.sound),[team,setTeam]=useState(preferences.team),[paused,setPaused]=useState(false),[hud,setHud]=useState({score:[0,0],phase:'idle',message:'',time:45,teams:['ARG','BRA'],sudden:false});
+ const [cupCharacter,setCupCharacter]=useState(preferences.cupCharacter);const stadiums=useRef<CanvasImageSource[]>([]),lastStadium=useRef(-1);
+ const [savedCup,setSavedCup]=useState<Cup|null>(()=>readSavedCup(platform.storage));
  const [rewardCup,setRewardCup]=useState<Cup|null>(null);
  const [cup,setCup]=useState<Cup|null>(null);const cupRef=useRef<Cup|null>(null),playingRound=useRef<string|null>(null);
- function storeCup(c:Cup|null){cupRef.current=c;setCup(c);}
+ function persistCup(c:Cup){setSavedCup(c);try{writeSavedCup(platform.storage,c);}catch{setSaveError('Cup progress has not saved. Please retry.');}}
+ function storeCup(c:Cup|null){cupRef.current=c;setCup(c);if(c)persistCup(c);}
  function finishRound(next:Cup){storeCup(next);if(next.coinEligible&&cupOutcome(next)&&!wallet.cupRewards?.[next.runId!])setRewardCup(next);}
- function collectCupReward(){if(!rewardCup)throw Error('No completed cup.');const latest=readWallet(localStorage);const result=claimCupReward(latest,rewardCup);commitWallet(result.wallet);return result.reward;}
- function changeDifficulty(value:Difficulty){setDifficulty(value);const c=cupRef.current;if(c&&value!=='hard')storeCup({...c,coinEligible:false});}
+ function collectCupReward(){if(!rewardCup)throw Error('No completed cup.');const latest=readWallet(platform.storage);const result=claimCupReward(latest,rewardCup);commitWallet(result.wallet);return result.reward;}
+ function changeDifficulty(value:Difficulty){setDifficulty(value);const c=cupRef.current||savedCup;if(c&&value!=='hard'){const next={...c,coinEligible:false};if(cupRef.current)storeCup(next);else persistCup(next);}}
 
- const [wardrobe,setWardrobe]=useState<Wardrobe>(()=>{try{return readWardrobe(localStorage);}catch{return {version:1,characters:[],equippedId:null};}});
- const [wallet,setWallet]=useState<Wallet>(()=>{try{return readWallet(localStorage);}catch{return emptyWallet();}});
+ const [wardrobe,setWardrobe]=useState<Wardrobe>(()=>readWardrobe(platform.storage));
+ const [wallet,setWallet]=useState<Wallet>(()=>readWallet(platform.storage));
  const [roomNotice,setRoomNotice]=useState('');
  const avatar=wallet.equipped?skinAvatar(wallet.equipped):equippedAvatar(wardrobe);
  const roomWardrobe:Wardrobe={...wardrobe,equippedId:wallet.equipped?`shop:${wallet.equipped}`:wardrobe.equippedId,characters:[...wardrobe.characters,...wallet.owned.map(id=>({id:`shop:${id}`,avatar:skinAvatar(id)}))]};
- function commitWallet(next:Wallet){writeWallet(localStorage,next);setWallet(next);}
+ function commitWallet(next:Wallet){writeWallet(platform.storage,next);setWallet(next);}
  function buyShopSkin(id:SkinId){try{commitWallet(purchaseSkin(wallet,id));tone();return null;}catch(e){return e instanceof Error?e.message:'Purchase could not be saved.';}}
  function equipShopSkin(id:SkinId){try{commitWallet(equipSkin(wallet,id));if(room)net.current?.send({type:'avatar',avatar:skinAvatar(id)});return null;}catch(e){return e instanceof Error?e.message:'Could not equip skin.';}}
 
  const [editingId,setEditingId]=useState<string|null>(null),[creatorReturn,setCreatorReturn]=useState<'title'|'rooms'>('title');
  function openCreator(id:string|null,back:'title'|'rooms'){setEditingId(id);setCreatorReturn(back);setScreen('creator');}
- function saveCharacter(value:Avatar){try{const id=editingId||(globalThis.crypto?.randomUUID?.()||`player-${Date.now()}-${Math.random().toString(36).slice(2)}`);const next=saveToWardrobe(wardrobe,value,id);writeWardrobe(localStorage,next);commitWallet(equipSkin(wallet,null));setWardrobe(next);setEditingId(id);return null;}catch{return 'Could not save. Browser storage is unavailable or full. Your draft is still here.';}}
- function equipCharacter(id:string|null){if(connecting)return;if(id?.startsWith('shop:')&&isSkinId(id.slice(5))){const error=equipShopSkin(id.slice(5) as SkinId);setNetworkError(error||'');return;}try{const next={...wardrobe,equippedId:id};writeWardrobe(localStorage,next);commitWallet(equipSkin(wallet,null));setWardrobe(next);if(room)net.current?.send({type:'avatar',avatar:equippedAvatar(next)});setNetworkError('');}catch{setNetworkError('Could not equip: browser storage is unavailable or full.');}}
+ function saveCharacter(value:Avatar){try{const id=editingId||(globalThis.crypto?.randomUUID?.()||`player-${Date.now()}-${Math.random().toString(36).slice(2)}`);const next=saveToWardrobe(wardrobe,value,id);writeWardrobe(platform.storage,next);commitWallet(equipSkin(wallet,null));setWardrobe(next);setEditingId(id);return null;}catch{return 'Could not save your player. Please retry. Your draft is still here.';}}
+ function equipCharacter(id:string|null){if(connecting)return;if(id?.startsWith('shop:')&&isSkinId(id.slice(5))){const error=equipShopSkin(id.slice(5) as SkinId);setNetworkError(error||'');return;}try{const next={...wardrobe,equippedId:id};writeWardrobe(platform.storage,next);commitWallet(equipSkin(wallet,null));setWardrobe(next);if(room)net.current?.send({type:'avatar',avatar:equippedAvatar(next)});setNetworkError('');}catch{setNetworkError('Could not save your equipped player. Please retry.');}}
  const [titleMode,setTitleMode]=useState<TitleMode>('Int Cup');
  const net=useRef<RoomClient|null>(null);
  const [room,setRoom]=useState<RoomState|null>(null),[roomCode,setRoomCode]=useState(''),[networkError,setNetworkError]=useState(''),[connecting,setConnecting]=useState(false),[server,setServer]=useState(serverURL),[copied,setCopied]=useState(false);
  useEffect(()=>{if(art.current)art.current.playerParts=room?room.players.map(p=>makeAvatarParts(p.avatar||DEFAULT_PLAYER)):cup?[makeCharacterParts([TEAM_BY_ID[cup.player]],false,[cup.character||0])[0],null]:avatar?[makeAvatarParts(avatar),null]:undefined;},[avatar,room,cup,ready]);
  useEffect(()=>{const el=frame.current;if(!el)return;const block=(e:MouseEvent)=>{if(e.type==='contextmenu'||e.type==='dblclick'||e.detail>1){e.preventDefault();if(e.type==='dblclick')e.stopPropagation();}};el.addEventListener('dblclick',block,true);el.addEventListener('contextmenu',block,true);return()=>{el.removeEventListener('dblclick',block,true);el.removeEventListener('contextmenu',block,true);};},[]);
  const online=!!room;
+ function savePreferences(){writePreferences(platform.storage,{difficulty,duration,sound,team,cupCharacter});}
+ useEffect(()=>{try{savePreferences();}catch{setSaveError('Your settings have not saved. Please retry.');}},[difficulty,duration,sound,team,cupCharacter]);
+ useEffect(()=>{audio.setEnabled(sound);},[audio,sound]);
+ useEffect(()=>platform.onAudioChange(setSdkMuted),[]);
+ function retrySave(){try{savePreferences();if(savedCup)writeSavedCup(platform.storage,savedCup);setSaveError('');}catch{setSaveError('Progress has not saved. Please retry.');}}
+ function continueCup(){if(!ready||!savedCup)return;leaveRoom();setMode('normal');visibilityPause.current=false;setPaused(false);const c=difficulty==='hard'?savedCup:{...savedCup,coinEligible:false};storeCup(c);setScreen('cup');if(c.coinEligible&&cupOutcome(c)&&!wallet.cupRewards?.[c.runId!])setRewardCup(c);}
  function leaveRoom(){net.current?.close();net.current=null;setRoom(null);setConnecting(false);aim.current=null;drag.current=null;charge.current=0;}
  function roomMenu(){leaveRoom();setCopied(false);storeCup(null);setNetworkError('');setScreen('rooms');setPaused(false);}
  async function connectRoom(create:boolean){
@@ -66,23 +79,24 @@ export default function Home(){
  }
  async function copyCode(){if(!room)return;try{await navigator.clipboard.writeText(room.code);setCopied(true);setTimeout(()=>setCopied(false),1800);}catch{setNetworkError(`Room code: ${room.code}`);}}
  const live=useRef({screen,paused,sound});live.current={screen,paused,sound};const angle=useRef(-.7),charge=useRef(0),initialised=useRef(false);
- function tone(goal=false){if(!live.current.sound)return;try{const a=audio.current||(audio.current=new AudioContext());void a.resume();const o=a.createOscillator(),v=a.createGain();o.connect(v);v.connect(a.destination);o.type=goal?'sine':'triangle';o.frequency.setValueAtTime(goal?740:230,a.currentTime);o.frequency.exponentialRampToValueAtTime(goal?1100:110,a.currentTime+.12);v.gain.setValueAtTime(goal?.12:.05,a.currentTime);v.gain.exponentialRampToValueAtTime(.001,a.currentTime+(goal?.7:.16));o.start();o.stop(a.currentTime+(goal?.7:.17));}catch{}}
+ function tone(goal=false){if(live.current.sound)audio.tone(goal);}
  useEffect(()=>{
   const m=new Match();m.teams=['FRA','POR'];game.current=m;m.onGoal=()=>tone(true);let active=true,animation=0,previous=0,accumulator=0,lastUi=0;
   const image=(src:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=src;});
-  void Promise.all([loadStadiums(),image('./art/ragdoll-atlas-v3.png'),image('./art/ball-v3.png'),loadCupCharacterAssets(),loadShopAssets()]).then(([arenas,sprites,ball])=>{if(active){art.current={stadium:arenas[0],sprites,parts:makeParts(sprites),ball:cropSprite(ball,0,0,ball.width,ball.height,16,16)};stadiums.current=arenas;setReady(true);}}).catch(()=>{if(active)setAssetError(true);});
+  void Promise.all([loadStadiums(),image('./art/ragdoll-atlas-v3.png'),image('./art/ball-v3.png'),loadCupCharacterAssets(),loadShopAssets()]).then(([arenas,sprites,ball])=>{if(active){art.current={stadium:arenas[0],sprites,parts:makeParts(sprites),ball:cropSprite(ball,0,0,ball.width,ball.height,16,16)};stadiums.current=arenas;setReady(true);platform.setLoading(false);}}).catch(()=>{if(active){setAssetError(true);platform.setLoading(false);}});
   const draw=(t:number)=>{const dt=Math.min((t-previous)/1000||0,.05);previous=t;
    if(net.current?.active)net.current.render(m);
    if(live.current.screen==='match'&&!live.current.paused){if(!net.current?.active){accumulator+=dt;while(accumulator>=1/60){m.tick(1/60);accumulator-=1/60;}}
     if(charge.current>0){charge.current=Math.min(320,charge.current+dt*250);aim.current={x:Math.cos(angle.current)*charge.current,y:Math.sin(angle.current)*charge.current};}
     if(m.phase==='finished'){setHud({score:[...m.score],phase:m.phase,message:m.message,time:m.time,teams:[...m.teams],sudden:m.suddenDeath});setScreen('result');}
    }else accumulator=0;
+   if(!visibilityPause.current)platform.setGameplay(isGameplay(live.current.screen,live.current.paused,m.phase));
    const c=canvas.current?.getContext('2d');if(c){c.save();paint(c,m,aim.current,art.current,live.current.screen==='title'||live.current.screen==='settings',net.current?.seat||0);c.restore();}
    if(t-lastUi>70){setHud({score:[...m.score],phase:m.phase,message:m.message,time:m.time,teams:[...m.teams],sudden:m.suddenDeath});lastUi=t;}
    animation=requestAnimationFrame(draw);
   };animation=requestAnimationFrame(draw);
-  const visibility=()=>{if(document.hidden&&live.current.screen==='match'){if(!net.current?.active)setPaused(true);drag.current=null;aim.current=null;charge.current=0;}};document.addEventListener('visibilitychange',visibility);
-  return()=>{active=false;net.current?.close();cancelAnimationFrame(animation);m.dispose();document.removeEventListener('visibilitychange',visibility);};
+  const visibility=()=>{if(document.hidden&&live.current.screen==='match'){if(!net.current?.active&&!live.current.paused){visibilityPause.current=true;setPaused(true);}drag.current=null;aim.current=null;charge.current=0;}};document.addEventListener('visibilitychange',visibility);
+  return()=>{active=false;net.current?.close();cancelAnimationFrame(animation);m.dispose();audio.dispose();platform.setGameplay(false);document.removeEventListener('visibilitychange',visibility);};
  },[]);
  function playSelectedMode(){
   if(!ready)return;
@@ -101,7 +115,7 @@ export default function Home(){
   if(c&&art.current){lastStadium.current=chooseStadium(lastStadium.current);art.current.stadium=stadiums.current[lastStadium.current];}
   angle.current=-.7;m.start([c?.player||team,opponent],c?'normal':mode,difficulty,duration);setPaused(false);aim.current=null;drag.current=null;charge.current=0;setScreen('match');tone();setTimeout(()=>canvas.current?.focus(),0);
  }
- function resetMenu(){leaveRoom();if(art.current&&stadiums.current[0])art.current.stadium=stadiums.current[0];game.current!.phase='idle';game.current!.teams=['FRA','POR'];setScreen('title');setPaused(false);drag.current=null;aim.current=null;charge.current=0;}
+ function resetMenu(){visibilityPause.current=false;leaveRoom();if(art.current&&stadiums.current[0])art.current.stadium=stadiums.current[0];game.current!.phase='idle';game.current!.teams=['FRA','POR'];setScreen('title');setPaused(false);drag.current=null;aim.current=null;charge.current=0;}
  function select(){if(!ready)return;storeCup(null);setScreen('select');tone();}
  const isDraw=hud.score[0]===hud.score[1];
  function advance(){const c=cupRef.current,m=game.current!;if(!c||!playingRound.current)return;
@@ -109,19 +123,18 @@ export default function Home(){
   finishRound(completeRound(c,playingRound.current,[m.score[0],m.score[1]]));playingRound.current=null;setScreen('cup');
  }
  function simulateRound(){const c=cupRef.current;if(!c||playerFixture(c))return;finishRound(completeRound(c,roundToken(c)));}
- function togglePause(){if(screen!=='match')return;setPaused(p=>!p);drag.current=null;aim.current=null;charge.current=0;}
+ function togglePause(){if(screen!=='match')return;visibilityPause.current=false;setPaused(p=>!p);drag.current=null;aim.current=null;charge.current=0;}
  function point(e:React.PointerEvent<HTMLCanvasElement>){const r=e.currentTarget.getBoundingClientRect();return{x:(e.clientX-r.left)*1000/r.width,y:(e.clientY-r.top)*562/r.height};}
  function down(e:React.PointerEvent<HTMLCanvasElement>){if(e.button!==0||!e.isPrimary||e.detail>1)return;if(paused||screen!=='match'||game.current?.phase!=='playing')return;e.preventDefault();canvas.current?.focus();e.currentTarget.setPointerCapture(e.pointerId);drag.current=point(e);aim.current={x:0,y:0};}
  function move(e:React.PointerEvent<HTMLCanvasElement>){if(!drag.current)return;const p=point(e),sign=1;aim.current={x:(p.x-drag.current.x)*sign*2.1,y:(p.y-drag.current.y)*sign*2.1,pointer:p};}
  function launch(){if(aim.current&&game.current&&!paused){if(net.current?.active){net.current.send({type:'launch',x:aim.current.x*.058,y:aim.current.y*.058});tone();}else if(game.current.launch(0,aim.current.x*.058,aim.current.y*.058))tone();}drag.current=null;aim.current=null;charge.current=0;}
  function keyDown(e:React.KeyboardEvent){if(screen!=='match')return;if(e.key==='Escape'||e.key.toLowerCase()==='p'){e.preventDefault();togglePause();return;}if(screen!=='match'||paused)return;if(['ArrowLeft','ArrowRight',' '].includes(e.key)){e.preventDefault();if(e.key==='ArrowLeft')angle.current-=.12;if(e.key==='ArrowRight')angle.current+=.12;if(e.key===' '&&!charge.current)charge.current=12;}}
- async function fullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await frame.current?.requestFullscreen();}catch{}}
  const minutes=Math.min(90,Math.floor((1-hud.time/duration)*90));
  return <main className="game-page"><div className="cabinet" ref={frame}>
   <div className={`game-screen${screen==='title'?' is-title':screen==='select'?' is-team-select':screen==='shop'?' is-group-stage is-shop':screen==='creator'?' is-group-stage is-character-creator':screen==='cup'?' is-group-stage':''}`} onKeyDown={keyDown}>
    <canvas ref={canvas} width={1000} height={562} aria-label="Football pitch. Drag and release to launch. Left and right arrows aim; hold Space to charge. Escape pauses." tabIndex={0} onContextMenu={e=>e.preventDefault()} onDoubleClick={e=>{e.preventDefault();e.stopPropagation();}} onClickCapture={e=>{if(e.detail>1){e.preventDefault();e.stopPropagation();}}} onMouseDownCapture={e=>{if(e.detail>1){e.preventDefault();e.stopPropagation();}}} onDragStart={e=>e.preventDefault()} onPointerDown={down} onPointerMove={move} onPointerUp={launch} onPointerCancel={()=>{drag.current=null;aim.current=null;charge.current=0;}} onKeyUp={e=>{if(e.key===' '){e.preventDefault();launch();}}} onBlur={()=>{drag.current=null;aim.current=null;charge.current=0;}}/>
    {(!ready||assetError)&&<div className="loading-screen" role="status"><p>{assetError?'ART COULD NOT LOAD':'LOADING THE PITCH...'}</p>{assetError&&<button onClick={()=>location.reload()}>TRY AGAIN</button>}</div>}
-   {screen==='title'&&ready&&<TitleScreen mode={titleMode} onMode={setTitleMode} onPlay={playSelectedMode} onSettings={()=>setScreen('settings')} onCreate={()=>openCreator(null,'title')} onShop={()=>setScreen('shop')}/>}
+   {screen==='title'&&ready&&<TitleScreen mode={titleMode} onMode={setTitleMode} onPlay={playSelectedMode} onSettings={()=>setScreen('settings')} onCreate={()=>openCreator(null,'title')} onShop={()=>setScreen('shop')} onContinueCup={savedCup?continueCup:undefined}/>}
    {screen==='shop'&&ready&&<Shop wallet={wallet} onBuy={buyShopSkin} onEquip={equipShopSkin} onBack={()=>setScreen('title')}/>}
    {screen==='creator'&&<CharacterCreator key={editingId||'new'} saved={wardrobe.characters.find(c=>c.id===editingId)?.avatar||null} onSave={saveCharacter} onBack={()=>setScreen(creatorReturn)}/>}
    {screen==='select'&&<CupSelect character={cupCharacter} onCharacter={setCupCharacter} selected={team} onSelect={id=>{setTeam(id);tone();}} onBack={resetMenu} onDraw={beginCup}/>}
@@ -134,11 +147,12 @@ export default function Home(){
     {screen==='match'&&!paused&&hud.phase==='playing'&&mode==='practice'&&<span className="practice-hint">DRAG TO AIM · RELEASE TO LAUNCH · ESC TO PAUSE</span>}
    </>}
    {screen==='match'&&paused&&<section className="pause-screen"><h2>{online?'MATCH MENU':'PAUSED'}</h2>{online&&<p>THE ONLINE MATCH KEEPS PLAYING</p>}<button className="white-button" onClick={togglePause}>RESUME</button><button onClick={resetMenu}>MAIN MENU</button></section>}
-   {screen==='settings'&&<section className="settings-screen"><h2>SETTINGS</h2><div className="difficulty-options" role="group" aria-label="Difficulty">{LEVELS.map(level=><button key={level} aria-pressed={difficulty===level} onClick={()=>changeDifficulty(level)}>{DIFFICULTIES[level].label.toUpperCase()}</button>)}</div><p className="difficulty-reward-note">{difficulty==='hard'?'HARD · INT. CUP COINS ENABLED':'INT. CUP COINS DISABLED'}<br/>Earn coins only on Hard. Easy and Regular award no coins.<br/>Changing away from Hard makes the current cup ineligible.</p><button onClick={()=>setSound(!sound)}>SOUND: {sound?'ON':'OFF'}</button><button onClick={()=>setDuration(duration===45?90:45)}>MATCH LENGTH: {duration} SECONDS</button><p>DRAG TOWARD YOUR TARGET<br/>RELEASE TO LAUNCH YOUR PLAYER</p><p>KEYBOARD: ← → AIM / HOLD SPACE TO CHARGE<br/>ESC OR P TO PAUSE</p><button className="white-button" onClick={()=>setScreen('title')}>BACK</button></section>}
+   {screen==='settings'&&<section className="settings-screen"><h2>SETTINGS</h2><div className="difficulty-options" role="group" aria-label="Difficulty">{LEVELS.map(level=><button key={level} aria-pressed={difficulty===level} onClick={()=>changeDifficulty(level)}>{DIFFICULTIES[level].label.toUpperCase()}</button>)}</div><p className="difficulty-reward-note">{difficulty==='hard'?'HARD · INT. CUP COINS ENABLED':'INT. CUP COINS DISABLED'}<br/>Earn coins only on Hard. Easy and Regular award no coins.<br/>Changing away from Hard makes the current cup ineligible.</p><button disabled={sdkMuted} onClick={()=>{audio.setEnabled(!sound);setSound(!sound);}}>SOUND: {sdkMuted?'MUTED BY CRAZYGAMES':sound?'ON':'OFF'}</button><button onClick={()=>setDuration(duration===45?90:45)}>MATCH LENGTH: {duration} SECONDS</button><p>DRAG TOWARD YOUR TARGET<br/>RELEASE TO LAUNCH YOUR PLAYER</p><p>KEYBOARD: ← → AIM / HOLD SPACE TO CHARGE<br/>ESC OR P TO PAUSE</p><button className="white-button" onClick={()=>setScreen('title')}>BACK</button></section>}
    {screen==='result'&&!online&&<section className="result-screen"><span className="result-stage">{cup?stageLabel(cup):'MATCH'} · FULL TIME</span><h2>{hud.message}</h2><div className="final-score"><img src={`./flags/${TEAMS.find(t=>t.id===hud.teams[0])?.flag}.svg`} alt={hud.teams[0]}/><span>{hud.score[0]} - {hud.score[1]}</span><img src={`./flags/${TEAMS.find(t=>t.id===hud.teams[1])?.flag}.svg`} alt={hud.teams[1]}/></div><p>{cup?.stage==='group'?'YOUR RESULT + SIMULATED MATCHES UPDATE THE TABLES':isDraw?'DRAW · NEXT GOAL WINS':'CONTINUE TO SEE THE NEXT ROUND'}</p><div className="result-actions"><button className="white-button" onClick={advance}>{isDraw&&cup?.stage!=='group'?'GOLDEN GOAL':'UPDATE TABLES & CONTINUE'}</button><button onClick={resetMenu}>MAIN MENU</button></div></section>}
    {screen==='result'&&online&&<section className="result-screen"><span>FRIEND MATCH · FULL TIME</span><h2>{hud.score[0]===hud.score[1]?'DRAW':hud.score[net.current?.seat||0]>hud.score[1-(net.current?.seat||0)]?'YOU WIN!':'YOU LOSE'}</h2><div className="final-score">{hud.teams[0]} {hud.score[0]} - {hud.score[1]} {hud.teams[1]}</div><button className="white-button" onClick={()=>net.current?.send({type:'ready'})}>{room?.players[net.current?.seat||0]?.ready?'CANCEL REMATCH':'REMATCH'}</button><p>{room?.players.some(p=>p.ready)?'WAITING FOR BOTH PLAYERS TO ACCEPT':'BOTH PLAYERS MUST ACCEPT THE REMATCH'}</p><button onClick={resetMenu}>LEAVE ROOM</button></section>}
    {screen!=='title'&&<div className="pixel-overlay" aria-hidden="true"/>}
   </div>
-  <div className="under-game"><span>{screen==='match'?(online?`YOU: ${net.current?.seat===0?'LEFT':'RIGHT'} · DRAG TOWARD TARGET`:'DRAG TOWARD TARGET · RELEASE'):screen==='cup'||screen==='select'?`INT. CUP · ${DIFFICULTIES[difficulty].label.toUpperCase()} · ${cup?cup.coinEligible?'COINS ENABLED':'NO COIN REWARDS':difficulty==='hard'?'COINS ENABLED':'NO COIN REWARDS'}`:'POCKET FOOTBALL v1.33 · RAGDOLL FOOTBALL'}</span><button onClick={fullscreen}>FULLSCREEN</button></div>
+  <div className="under-game"><span>{screen==='match'?(online?`YOU: ${net.current?.seat===0?'LEFT':'RIGHT'} · DRAG TOWARD TARGET`:'DRAG TOWARD TARGET · RELEASE'):screen==='cup'||screen==='select'?`INT. CUP · ${DIFFICULTIES[difficulty].label.toUpperCase()} · ${cup?cup.coinEligible?'COINS ENABLED':'NO COIN REWARDS':difficulty==='hard'?'COINS ENABLED':'NO COIN REWARDS'}`:'POCKET FOOTBALL v1.33 · RAGDOLL FOOTBALL'}</span></div>
+  {saveError&&<div className="save-notice" role="alert">{saveError}<button onClick={retrySave}>RETRY SAVE</button></div>}
  </div></main>;
 }

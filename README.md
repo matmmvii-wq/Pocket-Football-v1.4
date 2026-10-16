@@ -287,7 +287,7 @@ The backend must remain online. An HTTPS game requires a `wss://` endpoint. Do n
 
 ## CrazyGames submission status
 
-This is an independent self-hosting build, **not a CrazyGames-approved or submitted release**. The portable HTML5 client is included. A portal release still needs its current SDK integration, portal-specific invite/link handling, metadata, thumbnails and QA. It also needs a public multiplayer backend configured above. No portal SDK or ads are bundled, and no game has been submitted on your behalf.
+CrazyGames SDK v3 is integrated with Data Module progress saving, platform audio muting, and loading/gameplay events. The in-game fullscreen control has been removed. See **CRAZYGAMES.md** for submission options, saved progress, testing, and hosting instructions. The portable HTML5 client still needs the public multiplayer backend configured above when hosted separately. This update has not submitted or published the game; portal metadata, preview QA, and any required multiplayer portal features remain part of submission.
 
 Official submission/integration references:
 - https://docs.crazygames.com/

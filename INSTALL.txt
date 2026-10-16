@@ -1,0 +1,18 @@
+Pocket Football — CrazyGames SDK update
+
+1. Extract the ZIP into your current Pocket Football project folder.
+2. Keep the src and tests folder structure and replace matching files.
+3. Run npm run check, npm run build, and npm test.
+4. Deploy the rebuilt game through your existing hosting workflow.
+
+CrazyGames submission choices:
+- Progress save: Yes, using the Data Module from the CrazyGames SDK
+- Check: CrazyGames muting audio through SDK
+
+Read CRAZYGAMES.md for save checkpoints and the final portal preview check.
+For separate static hosting, set your room server's public wss:// address
+in public/config.js before rebuilding so Online Friendly can connect.
+
+Based on repository version 1.33.4, commit db9c12ad7a953f495d85ac46813df47a4763a251.
+Validation: TypeScript check, asset audit, production build, 106 automated
+tests, and browser checks using the official SDK plus save/mute fixtures.
