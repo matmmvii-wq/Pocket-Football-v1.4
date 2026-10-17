@@ -5,6 +5,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {audioContext} from './helpers/audio-context.mjs';
 const dir=await mkdtemp(join(tmpdir(),'pf-crazygames-'));
 await build({stdin:{contents:"export * from './src/platform';export * from './src/audio';export * from './src/progress';export * from './src/shop';export * from './src/wardrobe';export * from './src/avatar';export * from './src/cup';export * from './src/rewards';",resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'node',format:'esm',outfile:join(dir,'sdk.mjs')});
 const A=await import(pathToFileURL(join(dir,'sdk.mjs')).href);await rm(dir,{recursive:true,force:true});
@@ -50,17 +51,12 @@ test('read and write failures do not become an empty wallet or a successful save
  for(const read of [A.readWallet,A.readWardrobe,A.readPreferences,A.readSavedCup])assert.throws(()=>read(f.platform.storage),/service error/);
  f.sdk.data.setItem=()=>{throw Error('dataLimitExcedeed');};assert.throws(()=>A.writeWallet(f.platform.storage,A.emptyWallet()),/dataLimitExcedeed/);assert.equal(f.localReads,0);
 });
-function audioContext(){
- const gains=[],oscillators=[];const param=()=>({value:0,setValueAtTime(v){this.value=v;},exponentialRampToValueAtTime(v){this.value=v;}});
- const context={currentTime:4,destination:{},resume:async()=>{},close:async()=>{},createGain(){const g={gain:param(),connect(){},disconnect(){}};gains.push(g);return g;},createOscillator(){const o={frequency:param(),connect(){},disconnect(){},start(){},stop(){},onended:null};oscillators.push(o);return o;}};
- return {context,gains,oscillators};
-}
 test('SDK mute silences active audio immediately and cannot be overridden by the sound toggle',async()=>{
  const f=fixture();await f.platform.initialize();const a=audioContext();const audio=new A.GameAudio(f.platform,()=>a.context);
- audio.tone(true);assert.equal(a.oscillators.length,1);assert.equal(a.gains[0].gain.value,1);
- f.mute(true);assert.equal(a.gains[0].gain.value,0);audio.setEnabled(true);audio.tone();assert.equal(a.gains[0].gain.value,0);assert.equal(a.oscillators.length,1);
- f.mute(false);assert.equal(a.gains[0].gain.value,1);audio.tone();assert.equal(a.oscillators.length,2);
- audio.setEnabled(false);f.mute(true);f.mute(false);audio.tone();assert.equal(a.gains[0].gain.value,0);assert.equal(a.oscillators.length,2);audio.dispose();
+ audio.tone(true);const before=a.sources.length;assert.ok(before>0);assert.equal(a.gains[0].gain.value,1);
+ f.mute(true);assert.equal(a.gains[0].gain.value,0);assert.equal(a.active().length,0);audio.setEnabled(true);audio.tone();assert.equal(a.gains[0].gain.value,0);assert.equal(a.sources.length,before);
+ f.mute(false);assert.equal(a.gains[0].gain.value,1);audio.tone();assert.ok(a.sources.length>before);
+ const after=a.sources.length;audio.setEnabled(false);f.mute(true);f.mute(false);audio.tone();assert.equal(a.gains[0].gain.value,0);assert.equal(a.sources.length,after);audio.dispose();
 });
 test('initial SDK mute prevents audio from being created; settings listeners are removed on cleanup',async()=>{
  const f=fixture('crazygames',true);await f.platform.initialize();let created=0;
