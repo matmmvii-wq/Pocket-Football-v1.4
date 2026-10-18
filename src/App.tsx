@@ -60,7 +60,13 @@ export default function Home(){
  const online=!!room;
  function savePreferences(){writePreferences(platform.storage,{difficulty,duration,sound,team,cupCharacter});}
  useEffect(()=>{try{savePreferences();}catch{setSaveError('Your settings have not saved. Please retry.');}},[difficulty,duration,sound,team,cupCharacter]);
- useEffect(()=>{audio.setEnabled(sound);},[audio,sound]);
+ useEffect(()=>{audio.setVisible(!document.hidden);audio.setEnabled(sound);},[audio,sound]);
+ useEffect(()=>{
+  const unlock=()=>audio.unlock();unlock();
+  const events=['pointerdown','pointerup','keydown','touchend'] as const;
+  for(const event of events)window.addEventListener(event,unlock,{capture:true,passive:true});
+  return()=>{for(const event of events)window.removeEventListener(event,unlock,true);};
+ },[audio]);
  useEffect(()=>platform.onAudioChange(setSdkMuted),[]);
  function retrySave(){try{savePreferences();setSaveError('');}catch{setSaveError('Your settings have not saved. Please retry.');}}
  function leaveRoom(){net.current?.close();net.current=null;setRoom(null);setConnecting(false);aim.current=null;drag.current=null;charge.current=0;}
@@ -132,7 +138,7 @@ export default function Home(){
  function launch(){if(aim.current&&game.current&&!paused){if(net.current?.active){net.current.send({type:'launch',x:aim.current.x*.058,y:aim.current.y*.058});audio.play('launch');}else if(game.current.launch(0,aim.current.x*.058,aim.current.y*.058))audio.play('launch');}drag.current=null;aim.current=null;charge.current=0;}
  function keyDown(e:React.KeyboardEvent){if(screen!=='match')return;if(e.key==='Escape'||e.key.toLowerCase()==='p'){e.preventDefault();togglePause();return;}if(screen!=='match'||paused)return;if(['ArrowLeft','ArrowRight',' '].includes(e.key)){e.preventDefault();if(e.key==='ArrowLeft')angle.current-=.12;if(e.key==='ArrowRight')angle.current+=.12;if(e.key===' '&&!charge.current)charge.current=12;}}
  const minutes=Math.min(90,Math.floor((1-hud.time/duration)*90));
- return <main className="game-page"><div className="cabinet" ref={frame} onPointerDownCapture={()=>audio.unlock()} onKeyDownCapture={()=>audio.unlock()} onClickCapture={e=>{const button=(e.target as Element).closest('button,[role="option"]');if(button&&!button.matches(':disabled,[aria-disabled="true"],[data-audio-toggle]'))audio.play('click');}}>
+ return <main className="game-page"><div className="cabinet" ref={frame} onClickCapture={e=>{const button=(e.target as Element).closest('button,[role="option"]');if(button&&!button.matches(':disabled,[aria-disabled="true"],[data-audio-toggle]'))audio.play('click');}}>
   <div className={`game-screen${screen==='title'?' is-title':screen==='select'?' is-team-select':screen==='shop'?' is-group-stage is-shop':screen==='creator'?' is-group-stage is-character-creator':screen==='cup'?' is-group-stage':''}`} onKeyDown={keyDown}>
    <canvas ref={canvas} width={1000} height={562} aria-label="Football pitch. Drag and release to launch. Left and right arrows aim; hold Space to charge. Escape pauses." tabIndex={0} onContextMenu={e=>e.preventDefault()} onDoubleClick={e=>{e.preventDefault();e.stopPropagation();}} onClickCapture={e=>{if(e.detail>1){e.preventDefault();e.stopPropagation();}}} onMouseDownCapture={e=>{if(e.detail>1){e.preventDefault();e.stopPropagation();}}} onDragStart={e=>e.preventDefault()} onPointerDown={down} onPointerMove={move} onPointerUp={launch} onPointerCancel={()=>{drag.current=null;aim.current=null;charge.current=0;}} onKeyUp={e=>{if(e.key===' '){e.preventDefault();launch();}}} onBlur={()=>{drag.current=null;aim.current=null;charge.current=0;}}/>
    {(!ready||assetError)&&<div className="loading-screen" role="status"><p>{assetError?'ART COULD NOT LOAD':'LOADING THE PITCH...'}</p>{assetError&&<button onClick={()=>location.reload()}>TRY AGAIN</button>}</div>}
@@ -154,7 +160,6 @@ export default function Home(){
    {screen==='result'&&online&&<section className="result-screen"><span>FRIEND MATCH · FULL TIME</span><h2>{hud.score[0]===hud.score[1]?'DRAW':hud.score[net.current?.seat||0]>hud.score[1-(net.current?.seat||0)]?'YOU WIN!':'YOU LOSE'}</h2><div className="final-score">{hud.teams[0]} {hud.score[0]} - {hud.score[1]} {hud.teams[1]}</div><button className="white-button" onClick={()=>net.current?.send({type:'ready'})}>{room?.players[net.current?.seat||0]?.ready?'CANCEL REMATCH':'REMATCH'}</button><p>{room?.players.some(p=>p.ready)?'WAITING FOR BOTH PLAYERS TO ACCEPT':'BOTH PLAYERS MUST ACCEPT THE REMATCH'}</p><button onClick={resetMenu}>LEAVE ROOM</button></section>}
    {screen!=='title'&&<div className="pixel-overlay" aria-hidden="true"/>}
   </div>
-  <div className="under-game"><span>{screen==='match'?(online?`YOU: ${net.current?.seat===0?'LEFT':'RIGHT'} · DRAG TOWARD TARGET`:'DRAG TOWARD TARGET · RELEASE'):screen==='cup'||screen==='select'?`INT. CUP · ${DIFFICULTIES[difficulty].label.toUpperCase()} · ${cup?cup.coinEligible?'COINS ENABLED':'NO COIN REWARDS':difficulty==='hard'?'COINS ENABLED':'NO COIN REWARDS'}`:'POCKET FOOTBALL v1.33 · RAGDOLL FOOTBALL'}</span></div>
   {saveError&&<div className="save-notice" role="alert">{saveError}<button onClick={retrySave}>RETRY SAVE</button></div>}
  </div></main>;
 }

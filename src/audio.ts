@@ -26,6 +26,7 @@ export class GameAudio {
  private voices=new Set<Voice>();
  private lastCue=new Map<SoundCue,number>();
  private enabled=true;
+ private startRequested=false;
  private visible=true;
  private disposed=false;
  private scene:AudioScene='menu';
@@ -44,20 +45,23 @@ export class GameAudio {
  private updateGain(){
   if(this.master)this.master.gain.value=this.audible?1:0;
   if(!this.audible){this.stopVoices();this.stopCrowd();this.stopMenu();}
+  else if(this.startRequested)this.unlock();
   else this.syncLoops();
  }
- // Called by real pointer/keyboard gestures, including when returning from a
- // background tab. A blocked context never accumulates delayed countdowns.
+ // Attempt playback on startup. Browsers that block audible autoplay keep the
+ // context suspended; real pointer/keyboard gestures retry it. Preload music
+ // even while suspended, without accumulating delayed match effects.
  unlock(){
+  this.startRequested=true;
   if(!this.audible)return;
   try{
    if(!this.context){
     const a=this.createContext();this.context=a;
-    this.master=a.createGain();this.master.connect(a.destination);
-    a.onstatechange=()=>this.syncLoops();this.updateGain();
+    this.master=a.createGain();this.master.gain.value=1;this.master.connect(a.destination);
+    a.onstatechange=()=>this.syncLoops();
    }
-   if(this.context.state!=='running')void this.context.resume().catch(()=>{});
-   else this.syncLoops();
+   if(this.context.state!=='running')void this.context.resume().then(()=>this.syncLoops()).catch(()=>{});
+   this.syncLoops();
    if(this.scene==='menu')this.ensureMenuLoaded();
   }catch{/* Audio is optional; an unsupported/locked device must not stop play. */}
  }

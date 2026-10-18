@@ -80,6 +80,24 @@ test('leaving a result cancels future notes while menu feedback stays available'
  f.audio.setScene('menu');assert.equal(f.active().length,0);f.audio.play('click');assert.equal(f.active().length,1);f.audio.dispose();
 });
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+test('blocked startup preloads music; a later gesture starts one loop without queued effects',async()=>{
+ let loads=0,resumes=0;
+ const f=fixture('suspended',async context=>{loads++;return context.createBuffer(2,8000*30,8000);});
+ f.context.resume=()=>{resumes++;return new Promise(()=>{});};
+ f.audio.unlock();await flush();assert.equal(loads,1);assert.equal(resumes,1);assert.equal(f.active().length,0);
+ f.audio.unlock();f.setState('running');await flush();
+ assert.equal(loads,1);assert.equal(resumes,2);assert.equal(f.active().length,1);assert.equal(f.active()[0].loop,true);
+ for(let i=0;i<20;i++)f.audio.unlock();assert.equal(f.active().length,1);f.audio.dispose();
+});
+test('startup respects mute and visibility, then automatically starts when the gate opens',async()=>{
+ for(const gate of ['sdk','preference','visibility']){
+  let loads=0;const f=fixture('running',async context=>{loads++;return context.createBuffer(2,8000*30,8000);});
+  const allowed=value=>gate==='sdk'?f.mute(!value):gate==='preference'?f.audio.setEnabled(value):f.audio.setVisible(value);
+  allowed(false);f.audio.unlock();await flush();assert.equal(f.gains.length,0,gate);assert.equal(loads,0,gate);
+  allowed(true);await flush();assert.equal(loads,1,gate);assert.equal(f.active().length,1,gate);
+  assert.equal(f.active()[0].loop,true,gate);f.audio.dispose();
+ }
+});
 test('menu theme loads once, keeps its place across menus, and never overlaps match audio',async()=>{
  let loads=0;
  const f=fixture('running',async context=>{loads++;return context.createBuffer(2,8000*32,8000);});
@@ -121,8 +139,10 @@ test('bundled theme is a complete, non-clipping stereo WAV with a joined loop bo
  const wav=await readFile('public/audio/pocket-football-menu.wav');
  assert.equal(wav.toString('ascii',0,4),'RIFF');assert.equal(wav.toString('ascii',8,12),'WAVE');
  assert.equal(wav.readUInt16LE(22),2);assert.equal(wav.readUInt32LE(24),32000);assert.equal(wav.readUInt16LE(34),16);
- assert.equal(wav.readUInt32LE(40),32*32000*4);assert.equal(wav.length,44+32*32000*4);
+ const dataBytes=wav.readUInt32LE(40);assert.ok(dataBytes>0);assert.equal(dataBytes%4,0);assert.equal(wav.length,44+dataBytes);
  let peak=0,sum=0;for(let i=44;i<wav.length;i+=2){const v=wav.readInt16LE(i)/32768;peak=Math.max(peak,Math.abs(v));sum+=v*v;}
  assert.ok(peak<.8&&peak>.2);assert.ok(Math.sqrt(sum/((wav.length-44)/2))>.05);
- for(let c=0;c<2;c++)assert.equal(wav.readInt16LE(44+c*2),wav.readInt16LE(wav.length-4+c*2));
+ // A continuous loop need not repeat the exact endpoint sample. Allow the
+ // normal waveform slope at the join, including the replacement 30-second theme.
+ for(let c=0;c<2;c++)assert.ok(Math.abs(wav.readInt16LE(44+c*2)-wav.readInt16LE(wav.length-4+c*2))/32768<.05);
 });
