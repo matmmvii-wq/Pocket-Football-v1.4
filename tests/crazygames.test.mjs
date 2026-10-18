@@ -48,7 +48,7 @@ test('wallet, skin, character and preferences survive a fresh game session throu
 });
 test('read and write failures do not become an empty wallet or a successful save',async()=>{
  const f=fixture();await f.platform.initialize();f.sdk.data.getItem=()=>{throw Error('service error');};
- for(const read of [A.readWallet,A.readWardrobe,A.readPreferences,A.readSavedCup])assert.throws(()=>read(f.platform.storage),/service error/);
+ for(const read of [A.readWallet,A.readWardrobe,A.readPreferences])assert.throws(()=>read(f.platform.storage),/service error/);
  f.sdk.data.setItem=()=>{throw Error('dataLimitExcedeed');};assert.throws(()=>A.writeWallet(f.platform.storage,A.emptyWallet()),/dataLimitExcedeed/);assert.equal(f.localReads,0);
 });
 test('SDK mute silences active audio immediately and cannot be overridden by the sound toggle',async()=>{
@@ -67,17 +67,26 @@ test('loading and gameplay events occur once per real transition, including goal
  for(const state of [['title',false,'idle'],['match',false,'countdown'],['match',false,'playing'],['match',false,'playing'],['match',true,'playing'],['match',false,'playing'],['match',false,'goal'],['match',false,'countdown'],['match',false,'playing'],['result',false,'finished']])f.platform.setGameplay(A.isGameplay(...state));
  assert.deepEqual(f.events,['loadingStart','loadingStop','gameplayStart','gameplayStop','gameplayStart','gameplayStop','gameplayStart','gameplayStop']);
 });
-test('every completed Cup round reloads exactly, including eligibility and the final result',async()=>{
+test('earned Cup coins and reward receipts persist without saving the tournament',async()=>{
  const f=fixture();await f.platform.initialize();let cup={...A.createCup('ARG'),runId:'cloud-cup',coinEligible:true,character:2},rounds=0;
  while(cup.stage!=='done'){
-  A.writeSavedCup(f.platform.storage,cup);assert.deepEqual(A.readSavedCup(f.platform.storage),cup);
   cup=A.completeRound(cup,A.roundToken(cup),A.playerFixture(cup)?[9,0]:undefined);assert.ok(++rounds<12);
  }
- A.writeSavedCup(f.platform.storage,cup);const restored=A.readSavedCup(f.platform.storage);assert.equal(restored.winner,'ARG');
- const first=A.claimCupReward(A.emptyWallet(),restored,()=>.99);A.writeWallet(f.platform.storage,first.wallet);
- const again=A.claimCupReward(A.readWallet(f.platform.storage),restored,()=>0);assert.deepEqual(again.wallet,first.wallet);assert.equal(again.wallet.coins,135);
+ assert.equal(cup.winner,'ARG');
+ const first=A.claimCupReward(A.emptyWallet(),cup,()=>.99);A.writeWallet(f.platform.storage,first.wallet);
+ const next=new A.GamePlatform(()=>f.sdk,()=>{throw Error('must use cloud wallet');});await next.initialize();
+ const again=A.claimCupReward(A.readWallet(next.storage),cup,()=>{throw Error('must not reroll');});assert.deepEqual(again.wallet,first.wallet);assert.equal(again.wallet.coins,135);
+ assert.deepEqual([...f.data.values.keys()],[A.SHOP_KEY]);
 });
-test('malformed progress and preferences are rejected without deleting stored data',()=>{
- const storage=memory();storage.setItem(A.CUP_KEY,'{"version":1,"cup":{"groups":[]}}');assert.equal(A.readSavedCup(storage),null);assert.ok(storage.getItem(A.CUP_KEY));
+test('old Cup saves are ignored when the SDK loads persistent progress',async()=>{
+ const f=fixture();f.data.setItem('pocket-football.cup.v1','obsolete tournament');
+ f.data.setItem(A.SHOP_KEY,JSON.stringify({...A.emptyWallet(),coins:77}));
+ const get=f.sdk.data.getItem;f.sdk.data.getItem=key=>{assert.notEqual(key,'pocket-football.cup.v1','old tournament must not be read');return get(key);};
+ await f.platform.initialize();assert.equal(A.readWallet(f.platform.storage).coins,77);
+ assert.equal(A.readPreferences(f.platform.storage).difficulty,'hard');
+});
+test('malformed preferences fall back to defaults without deleting stored data',()=>{
+ const storage=memory();
  storage.setItem(A.SETTINGS_KEY,JSON.stringify({version:1,difficulty:'impossible',duration:9,sound:'false',team:'BAD',cupCharacter:99}));assert.deepEqual(A.readPreferences(storage),{difficulty:'hard',duration:45,sound:true,team:'ARG',cupCharacter:0});
+ assert.ok(storage.getItem(A.SETTINGS_KEY));
 });

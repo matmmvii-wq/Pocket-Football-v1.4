@@ -8,7 +8,7 @@ export interface CrazyGamesSDK {
  game:{settings:PortalSettings;addSettingsChangeListener:(listener:(settings:PortalSettings)=>void)=>void;removeSettingsChangeListener:(listener:(settings:PortalSettings)=>void)=>void;loadingStart:()=>void;loadingStop:()=>void;gameplayStart:()=>void;gameplayStop:()=>void};
 }
 declare global {interface Window {CrazyGames?:{SDK:CrazyGamesSDK}}}
-export const SAVE_KEYS=['pocket-football.shop.v1','pocket-football.characters.v1','pocket-football.avatar.v1','pocket-football.settings.v1','pocket-football.cup.v1'] as const;
+export const SAVE_KEYS=['pocket-football.shop.v1','pocket-football.characters.v1','pocket-football.avatar.v1','pocket-football.settings.v1'] as const;
 
 export class GamePlatform {
  private sdk:CrazyGamesSDK|null=null;

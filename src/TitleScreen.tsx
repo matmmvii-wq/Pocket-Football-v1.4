@@ -6,7 +6,7 @@ export function launchTitleMode(mode:TitleMode,actions:{cup:()=>void;friendly:()
  else if(mode==='Practice')actions.practice();
 }
 const modes:TitleMode[]=['Int Cup','Online Friendly','Ranked','Practice'];
-export function TitleScreen({mode,onMode,onPlay,onSettings,onCreate,onShop,onContinueCup}:{mode:TitleMode;onMode:(mode:TitleMode)=>void;onPlay:()=>void;onSettings:()=>void;onCreate?:()=>void;onShop?:()=>void;onContinueCup?:()=>void}){
+export function TitleScreen({mode,onMode,onPlay,onSettings,onCreate,onShop}:{mode:TitleMode;onMode:(mode:TitleMode)=>void;onPlay:()=>void;onSettings:()=>void;onCreate?:()=>void;onShop?:()=>void}){
  const [videoFailed,setVideoFailed]=useState(false),[open,setOpen]=useState(false);
  const modeControl=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),options=useRef<(HTMLButtonElement|null)[]>([]);
  useEffect(()=>{if(!open)return;options.current[modes.indexOf(mode)]?.focus();const outside=(e:PointerEvent)=>{if(!modeControl.current?.contains(e.target as Node))setOpen(false);};document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);},[open]);
@@ -27,6 +27,5 @@ export function TitleScreen({mode,onMode,onPlay,onSettings,onCreate,onShop,onCon
   <button className="title-hotspot title-shop" aria-label="Shop" onClick={onShop}><span className="title-inner-effect" aria-hidden="true"/></button>
   <button className="title-hotspot title-settings" aria-label="Settings" onClick={onSettings}><span className="title-inner-effect" aria-hidden="true"/></button>
   <button className="title-hotspot title-play" aria-label={mode==='Ranked'?'Ranked — unavailable':`Play ${mode}`} title={mode==='Ranked'?'Ranked is not available yet':`Play ${mode}`} disabled={mode==='Ranked'} onClick={onPlay}><span className="title-inner-effect" aria-hidden="true"/></button>
-  {mode==='Int Cup'&&onContinueCup&&<button className="title-continue" onClick={onContinueCup}>CONTINUE CUP</button>}
  </section>;
 }

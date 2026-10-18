@@ -22,7 +22,7 @@ import {CupSelect,CupHub} from './CupScreens';
 import {platform,isGameplay} from './platform';
 import {GameAudio} from './audio';
 import {MatchAudio} from './matchAudio';
-import {readPreferences,writePreferences,readSavedCup,writeSavedCup} from './progress';
+import {readPreferences,writePreferences} from './progress';
 type Screen='title'|'select'|'cup'|'match'|'result'|'settings'|'rooms'|'creator'|'shop';
 const LEVELS:Difficulty[]=['easy','normal','hard'];
 export default function Home(){
@@ -31,14 +31,13 @@ export default function Home(){
  const visibilityPause=useRef(false);
  const [screen,setScreen]=useState<Screen>('title'),[ready,setReady]=useState(false),[assetError,setAssetError]=useState(false),[mode,setMode]=useState<Mode>('normal'),[difficulty,setDifficulty]=useState<Difficulty>(preferences.difficulty),[duration,setDuration]=useState(preferences.duration),[sound,setSound]=useState(preferences.sound),[team,setTeam]=useState(preferences.team),[paused,setPaused]=useState(false),[hud,setHud]=useState({score:[0,0],phase:'idle',message:'',time:45,teams:['ARG','BRA'],sudden:false});
  const [cupCharacter,setCupCharacter]=useState(preferences.cupCharacter);const stadiums=useRef<CanvasImageSource[]>([]),lastStadium=useRef(-1);
- const [savedCup,setSavedCup]=useState<Cup|null>(()=>readSavedCup(platform.storage));
  const [rewardCup,setRewardCup]=useState<Cup|null>(null);
  const [cup,setCup]=useState<Cup|null>(null);const cupRef=useRef<Cup|null>(null),playingRound=useRef<string|null>(null);
- function persistCup(c:Cup){setSavedCup(c);try{writeSavedCup(platform.storage,c);}catch{setSaveError('Cup progress has not saved. Please retry.');}}
- function storeCup(c:Cup|null){cupRef.current=c;setCup(c);if(c)persistCup(c);}
+ // Cup runs exist only in this session. Leaving also releases the active match.
+ function storeCup(c:Cup|null){cupRef.current=c;setCup(c);if(!c){playingRound.current=null;setRewardCup(null);}}
  function finishRound(next:Cup){storeCup(next);if(next.coinEligible&&cupOutcome(next)&&!wallet.cupRewards?.[next.runId!])setRewardCup(next);}
  function collectCupReward(){if(!rewardCup)throw Error('No completed cup.');const latest=readWallet(platform.storage);const result=claimCupReward(latest,rewardCup);commitWallet(result.wallet);audio.play('reward');return result.reward;}
- function changeDifficulty(value:Difficulty){setDifficulty(value);const c=cupRef.current||savedCup;if(c&&value!=='hard'){const next={...c,coinEligible:false};if(cupRef.current)storeCup(next);else persistCup(next);}}
+ function changeDifficulty(value:Difficulty){setDifficulty(value);const c=cupRef.current;if(c&&value!=='hard')storeCup({...c,coinEligible:false});}
 
  const [wardrobe,setWardrobe]=useState<Wardrobe>(()=>readWardrobe(platform.storage));
  const [wallet,setWallet]=useState<Wallet>(()=>readWallet(platform.storage));
@@ -63,8 +62,7 @@ export default function Home(){
  useEffect(()=>{try{savePreferences();}catch{setSaveError('Your settings have not saved. Please retry.');}},[difficulty,duration,sound,team,cupCharacter]);
  useEffect(()=>{audio.setEnabled(sound);},[audio,sound]);
  useEffect(()=>platform.onAudioChange(setSdkMuted),[]);
- function retrySave(){try{savePreferences();if(savedCup)writeSavedCup(platform.storage,savedCup);setSaveError('');}catch{setSaveError('Progress has not saved. Please retry.');}}
- function continueCup(){if(!ready||!savedCup)return;leaveRoom();setMode('normal');visibilityPause.current=false;setPaused(false);const c=difficulty==='hard'?savedCup:{...savedCup,coinEligible:false};storeCup(c);setScreen('cup');if(c.coinEligible&&cupOutcome(c)&&!wallet.cupRewards?.[c.runId!])setRewardCup(c);}
+ function retrySave(){try{savePreferences();setSaveError('');}catch{setSaveError('Your settings have not saved. Please retry.');}}
  function leaveRoom(){net.current?.close();net.current=null;setRoom(null);setConnecting(false);aim.current=null;drag.current=null;charge.current=0;}
  function roomMenu(){leaveRoom();setCopied(false);storeCup(null);setNetworkError('');setScreen('rooms');setPaused(false);}
  async function connectRoom(create:boolean){
@@ -98,7 +96,9 @@ export default function Home(){
    animation=requestAnimationFrame(draw);
   };animation=requestAnimationFrame(draw);
   const visibility=()=>{audio.setVisible(!document.hidden);if(document.hidden)syncAudio();if(document.hidden&&live.current.screen==='match'){if(!net.current?.active&&!live.current.paused){visibilityPause.current=true;setPaused(true);}drag.current=null;aim.current=null;charge.current=0;}};document.addEventListener('visibilitychange',visibility);
-  return()=>{active=false;net.current?.close();cancelAnimationFrame(animation);m.dispose();audio.dispose();platform.setGameplay(false);document.removeEventListener('visibilitychange',visibility);};
+  // Navigation can preserve React in the browser's back/forward cache.
+  const leavePage=()=>{if(cupRef.current)resetMenu();};window.addEventListener('pagehide',leavePage);
+  return()=>{active=false;net.current?.close();cancelAnimationFrame(animation);m.dispose();audio.dispose();platform.setGameplay(false);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',leavePage);};
  },[]);
  function playSelectedMode(){
   if(!ready)return;
@@ -111,13 +111,13 @@ export default function Home(){
    }
   });
  }
- function beginCup(){setRewardCup(null);storeCup({...createCup(team),character:cupCharacter,runId:globalThis.crypto?.randomUUID?.()||`cup-${Date.now()}-${Math.random()}`,coinEligible:difficulty==='hard'});setScreen('cup');}
+ function beginCup(){playingRound.current=null;setRewardCup(null);storeCup({...createCup(team),character:cupCharacter,runId:globalThis.crypto?.randomUUID?.()||`cup-${Date.now()}-${Math.random()}`,coinEligible:difficulty==='hard'});setScreen('cup');}
  function begin(){if(cupRef.current&&playingRound.current)return;const m=game.current!,c=cupRef.current;let opponent='BRA';
   if(c){const f=playerFixture(c);if(!f)return;opponent=f.home===c.player?f.away:f.home;playingRound.current=roundToken(c);}
   if(c&&art.current){lastStadium.current=chooseStadium(lastStadium.current);art.current.stadium=stadiums.current[lastStadium.current];}
   angle.current=-.7;m.start([c?.player||team,opponent],c?'normal':mode,difficulty,duration);setPaused(false);aim.current=null;drag.current=null;charge.current=0;setScreen('match');setTimeout(()=>canvas.current?.focus(),0);
  }
- function resetMenu(){visibilityPause.current=false;leaveRoom();if(art.current&&stadiums.current[0])art.current.stadium=stadiums.current[0];game.current!.phase='idle';game.current!.teams=['FRA','POR'];setScreen('title');setPaused(false);drag.current=null;aim.current=null;charge.current=0;}
+ function resetMenu(){visibilityPause.current=false;leaveRoom();storeCup(null);if(art.current&&stadiums.current[0])art.current.stadium=stadiums.current[0];game.current!.phase='idle';game.current!.teams=['FRA','POR'];setScreen('title');setPaused(false);drag.current=null;aim.current=null;charge.current=0;}
  function select(){if(!ready)return;storeCup(null);setScreen('select');}
  const isDraw=hud.score[0]===hud.score[1];
  function advance(){const c=cupRef.current,m=game.current!;if(!c||!playingRound.current)return;
@@ -136,7 +136,7 @@ export default function Home(){
   <div className={`game-screen${screen==='title'?' is-title':screen==='select'?' is-team-select':screen==='shop'?' is-group-stage is-shop':screen==='creator'?' is-group-stage is-character-creator':screen==='cup'?' is-group-stage':''}`} onKeyDown={keyDown}>
    <canvas ref={canvas} width={1000} height={562} aria-label="Football pitch. Drag and release to launch. Left and right arrows aim; hold Space to charge. Escape pauses." tabIndex={0} onContextMenu={e=>e.preventDefault()} onDoubleClick={e=>{e.preventDefault();e.stopPropagation();}} onClickCapture={e=>{if(e.detail>1){e.preventDefault();e.stopPropagation();}}} onMouseDownCapture={e=>{if(e.detail>1){e.preventDefault();e.stopPropagation();}}} onDragStart={e=>e.preventDefault()} onPointerDown={down} onPointerMove={move} onPointerUp={launch} onPointerCancel={()=>{drag.current=null;aim.current=null;charge.current=0;}} onKeyUp={e=>{if(e.key===' '){e.preventDefault();launch();}}} onBlur={()=>{drag.current=null;aim.current=null;charge.current=0;}}/>
    {(!ready||assetError)&&<div className="loading-screen" role="status"><p>{assetError?'ART COULD NOT LOAD':'LOADING THE PITCH...'}</p>{assetError&&<button onClick={()=>location.reload()}>TRY AGAIN</button>}</div>}
-   {screen==='title'&&ready&&<TitleScreen mode={titleMode} onMode={setTitleMode} onPlay={playSelectedMode} onSettings={()=>setScreen('settings')} onCreate={()=>openCreator(null,'title')} onShop={()=>setScreen('shop')} onContinueCup={savedCup?continueCup:undefined}/>}
+   {screen==='title'&&ready&&<TitleScreen mode={titleMode} onMode={setTitleMode} onPlay={playSelectedMode} onSettings={()=>setScreen('settings')} onCreate={()=>openCreator(null,'title')} onShop={()=>setScreen('shop')}/>}
    {screen==='shop'&&ready&&<Shop wallet={wallet} onBuy={buyShopSkin} onEquip={equipShopSkin} onBack={()=>setScreen('title')}/>}
    {screen==='creator'&&<CharacterCreator key={editingId||'new'} saved={wardrobe.characters.find(c=>c.id===editingId)?.avatar||null} onSave={saveCharacter} onBack={()=>setScreen(creatorReturn)}/>}
    {screen==='select'&&<CupSelect character={cupCharacter} onCharacter={setCupCharacter} selected={team} onSelect={setTeam} onBack={resetMenu} onDraw={beginCup}/>}
