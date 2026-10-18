@@ -4,13 +4,25 @@ export type SoundCue='click'|'launch'|'countdown'|'kickoff'|'goal'|'win'|'lose'|
 export type AudioScene='menu'|'match'|'paused'|'result';
 type Voice={source:AudioScheduledSourceNode;nodes:AudioNode[];scene:boolean};
 
-// Original, synthesized arcade sounds: no downloads, codecs, or audio assets.
-// Every source (including the crowd) passes through the same SDK mute gate.
+async function loadMenuTheme(context:AudioContext){
+ const response=await fetch('./audio/pocket-football-menu.wav');
+ if(!response.ok)throw Error('Menu music could not load.');
+ return context.decodeAudioData(await response.arrayBuffer());
+}
+
+// Original effects and a bundled original menu theme. Every source, including
+// the music and crowd, passes through the same SDK mute gate.
 export class GameAudio {
  private context:AudioContext|null=null;
  private master:GainNode|null=null;
  private noise:AudioBuffer|null=null;
  private crowd:Voice|null=null;
+ private menuMusic:Voice|null=null;
+ private menuBuffer:AudioBuffer|null=null;
+ private menuLoading:Promise<void>|null=null;
+ private menuRetryAt=0;
+ private menuOffset=0;
+ private menuStartedAt=0;
  private voices=new Set<Voice>();
  private lastCue=new Map<SoundCue,number>();
  private enabled=true;
@@ -18,7 +30,7 @@ export class GameAudio {
  private disposed=false;
  private scene:AudioScene='menu';
  private unsubscribe:()=>void;
- constructor(private portal:Pick<GamePlatform,'audioMuted'|'onAudioChange'>,private createContext=()=>new AudioContext()){
+ constructor(private portal:Pick<GamePlatform,'audioMuted'|'onAudioChange'>,private createContext=()=>new AudioContext(),private loadMenu:(context:AudioContext)=>Promise<AudioBuffer>=loadMenuTheme){
   this.unsubscribe=portal.onAudioChange(()=>this.updateGain());
  }
  private get audible(){return this.enabled&&this.visible&&!this.portal.audioMuted&&!this.disposed;}
@@ -26,12 +38,13 @@ export class GameAudio {
  setVisible(value:boolean){if(this.visible===value)return;this.visible=value;this.updateGain();}
  setScene(value:AudioScene){
   if(this.scene===value)return;
-  this.scene=value;this.stopVoices(true);this.syncCrowd();
+  this.scene=value;this.stopVoices(true);this.syncLoops();
+  if(value==='menu'&&this.audible)this.ensureMenuLoaded();
  }
  private updateGain(){
   if(this.master)this.master.gain.value=this.audible?1:0;
-  if(!this.audible){this.stopVoices();this.stopCrowd();}
-  else this.syncCrowd();
+  if(!this.audible){this.stopVoices();this.stopCrowd();this.stopMenu();}
+  else this.syncLoops();
  }
  // Called by real pointer/keyboard gestures, including when returning from a
  // background tab. A blocked context never accumulates delayed countdowns.
@@ -41,10 +54,11 @@ export class GameAudio {
    if(!this.context){
     const a=this.createContext();this.context=a;
     this.master=a.createGain();this.master.connect(a.destination);
-    a.onstatechange=()=>this.syncCrowd();this.updateGain();
+    a.onstatechange=()=>this.syncLoops();this.updateGain();
    }
    if(this.context.state!=='running')void this.context.resume().catch(()=>{});
-   else this.syncCrowd();
+   else this.syncLoops();
+   if(this.scene==='menu')this.ensureMenuLoaded();
   }catch{/* Audio is optional; an unsupported/locked device must not stop play. */}
  }
  private forget(voice:Voice){
@@ -95,6 +109,33 @@ export class GameAudio {
   this.track(source,[source,filter,gain],true);source.start(start);source.stop(start+duration+.02);
  }
  private stopCrowd(){if(this.crowd){this.stop(this.crowd);this.crowd=null;}}
+ private syncLoops(){this.syncCrowd();this.syncMenu();}
+ private ensureMenuLoaded(){
+  const a=this.context;
+  if(!a||this.disposed||this.menuBuffer||this.menuLoading||Date.now()<this.menuRetryAt)return;
+  this.menuLoading=Promise.resolve().then(()=>this.loadMenu(a)).then(buffer=>{
+   // A late download may finish during a match or after cleanup. Only the
+   // current scene may start playback, and disposed contexts stay silent.
+   if(this.disposed||this.context!==a)return;
+   this.menuBuffer=buffer;this.syncMenu();
+  }).catch(()=>{this.menuRetryAt=Date.now()+10000;}).finally(()=>{this.menuLoading=null;});
+ }
+ private stopMenu(){
+  if(!this.menuMusic)return;
+  if(this.context&&this.menuBuffer)this.menuOffset=(this.menuOffset+Math.max(0,this.context.currentTime-this.menuStartedAt))%this.menuBuffer.duration;
+  this.stop(this.menuMusic);this.menuMusic=null;
+ }
+ private syncMenu(){
+  const a=this.context;
+  if(!this.audible||this.scene!=='menu'||a?.state!=='running'){this.stopMenu();return;}
+  if(this.menuMusic||!this.menuBuffer)return;
+  const source=a.createBufferSource(),gain=a.createGain();
+  source.buffer=this.menuBuffer;source.loop=true;
+  gain.gain.setValueAtTime(0,a.currentTime);gain.gain.linearRampToValueAtTime(.12,a.currentTime+.3);
+  source.connect(gain);gain.connect(this.master!);
+  this.menuMusic={source,nodes:[source,gain],scene:true};this.menuStartedAt=a.currentTime;
+  source.start(a.currentTime,this.menuOffset);
+ }
  private syncCrowd(){
   const a=this.context;
   if(!this.audible||this.scene!=='match'||a?.state!=='running'){this.stopCrowd();return;}
@@ -143,8 +184,8 @@ export class GameAudio {
  tone(goal=false){this.play(goal?'goal':'launch');}
  dispose(){
   if(this.disposed)return;this.disposed=true;this.unsubscribe();
-  this.stopVoices();this.stopCrowd();this.master?.disconnect();
+  this.stopVoices();this.stopCrowd();this.stopMenu();this.master?.disconnect();
   if(this.context){this.context.onstatechange=null;void this.context.close().catch(()=>{});}
-  this.context=null;this.master=null;this.noise=null;this.lastCue.clear();
+  this.context=null;this.master=null;this.noise=null;this.menuBuffer=null;this.lastCue.clear();
  }
 }
