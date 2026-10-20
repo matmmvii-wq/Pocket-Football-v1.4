@@ -6,7 +6,7 @@ if errorlevel 1 (
  pause
  exit /b 1
 )
-echo Pocket Cup - v1.28 - custom character creator
+echo Pocket Football - v1.34.0 - CrazyGames Friends
 echo Open http://localhost:3000 in your browser.
 echo Keep this window open while playing.
 echo If port 3000 is in use, stop your old game server first.

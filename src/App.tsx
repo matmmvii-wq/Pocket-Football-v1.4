@@ -15,6 +15,7 @@ import {loadStadiums,chooseStadium,STADIUM_NAMES} from './stadiums';
 import {makeAvatarParts} from './avatarArt';
 import {RoomLobby} from './RoomLobby';
 import {RoomClient, RoomState, serverURL} from './network';
+import {publicAvatar,playerName,roomCode as validRoomCode,MultiplayerRequest} from './multiplayer';
 import {TitleScreen,TitleMode,launchTitleMode} from './TitleScreen';
 import {Match,TEAMS,paint,makeParts,cropSprite,GameArt,Aim,Mode,Difficulty} from './game';
 import {Cup,createCup,completeRound,playerFixture,roundToken,stageLabel} from './cup';
@@ -25,6 +26,11 @@ import {MatchAudio} from './matchAudio';
 import {readPreferences,writePreferences} from './progress';
 type Screen='title'|'select'|'cup'|'match'|'result'|'settings'|'rooms'|'creator'|'shop';
 const LEVELS:Difficulty[]=['easy','normal','hard'];
+function RoomUnavailable({message,onClose}:{message:string;onClose:()=>void}){
+ const dialog=useRef<HTMLDialogElement>(null);
+ useEffect(()=>{dialog.current?.showModal();},[]);
+ return <dialog ref={dialog} className="network-dialog" role="alertdialog" aria-labelledby="room-unavailable-title" onCancel={e=>{e.preventDefault();onClose();}} onKeyDown={e=>e.stopPropagation()}><h2 id="room-unavailable-title">ROOM UNAVAILABLE</h2><p>{message}</p><button className="white-button" autoFocus onClick={onClose}>BACK</button></dialog>;
+}
 export default function Home(){
  const canvas=useRef<HTMLCanvasElement>(null),frame=useRef<HTMLDivElement>(null),game=useRef<Match|null>(null),art=useRef<GameArt|null>(null),drag=useRef<{x:number;y:number}|null>(null),aim=useRef<Aim|null>(null);
  const [preferences]=useState(()=>readPreferences(platform.storage)),[audio]=useState(()=>new GameAudio(platform)),[sdkMuted,setSdkMuted]=useState(platform.audioMuted),[saveError,setSaveError]=useState('');
@@ -46,15 +52,19 @@ export default function Home(){
  const roomWardrobe:Wardrobe={...wardrobe,equippedId:wallet.equipped?`shop:${wallet.equipped}`:wardrobe.equippedId,characters:[...wardrobe.characters,...wallet.owned.map(id=>({id:`shop:${id}`,avatar:skinAvatar(id)}))]};
  function commitWallet(next:Wallet){writeWallet(platform.storage,next);setWallet(next);}
  function buyShopSkin(id:SkinId){try{commitWallet(purchaseSkin(wallet,id));audio.play('reward');return null;}catch(e){return e instanceof Error?e.message:'Purchase could not be saved.';}}
- function equipShopSkin(id:SkinId){try{commitWallet(equipSkin(wallet,id));if(room)net.current?.send({type:'avatar',avatar:skinAvatar(id)});return null;}catch(e){return e instanceof Error?e.message:'Could not equip skin.';}}
+ function equipShopSkin(id:SkinId){try{commitWallet(equipSkin(wallet,id));if(room)net.current?.send({type:'avatar',avatar:publicAvatar(skinAvatar(id))});return null;}catch(e){return e instanceof Error?e.message:'Could not equip skin.';}}
 
  const [editingId,setEditingId]=useState<string|null>(null),[creatorReturn,setCreatorReturn]=useState<'title'|'rooms'>('title');
  function openCreator(id:string|null,back:'title'|'rooms'){setEditingId(id);setCreatorReturn(back);setScreen('creator');}
  function saveCharacter(value:Avatar){try{const id=editingId||(globalThis.crypto?.randomUUID?.()||`player-${Date.now()}-${Math.random().toString(36).slice(2)}`);const next=saveToWardrobe(wardrobe,value,id);writeWardrobe(platform.storage,next);commitWallet(equipSkin(wallet,null));setWardrobe(next);setEditingId(id);return null;}catch{return 'Could not save your player. Please retry. Your draft is still here.';}}
- function equipCharacter(id:string|null){if(connecting)return;if(id?.startsWith('shop:')&&isSkinId(id.slice(5))){const error=equipShopSkin(id.slice(5) as SkinId);setNetworkError(error||'');return;}try{const next={...wardrobe,equippedId:id};writeWardrobe(platform.storage,next);commitWallet(equipSkin(wallet,null));setWardrobe(next);if(room)net.current?.send({type:'avatar',avatar:equippedAvatar(next)});setNetworkError('');}catch{setNetworkError('Could not save your equipped player. Please retry.');}}
+ function equipCharacter(id:string|null){if(connecting)return;if(id?.startsWith('shop:')&&isSkinId(id.slice(5))){const error=equipShopSkin(id.slice(5) as SkinId);setNetworkError(error||'');return;}try{const next={...wardrobe,equippedId:id};writeWardrobe(platform.storage,next);commitWallet(equipSkin(wallet,null));setWardrobe(next);if(room)net.current?.send({type:'avatar',avatar:publicAvatar(equippedAvatar(next))});setNetworkError('');}catch{setNetworkError('Could not save your equipped player. Please retry.');}}
  const [titleMode,setTitleMode]=useState<TitleMode>('Int Cup');
  const net=useRef<RoomClient|null>(null);
  const [room,setRoom]=useState<RoomState|null>(null),[roomCode,setRoomCode]=useState(''),[networkError,setNetworkError]=useState(''),[connecting,setConnecting]=useState(false),[server,setServer]=useState(serverURL),[copied,setCopied]=useState(false);
+ const connectingRef=useRef(false),launchRequest=useRef<(request:MultiplayerRequest)=>void>(()=>{});
+ const [inviteCopied,setInviteCopied]=useState(false),[inviteFallback,setInviteFallback]=useState(''),[networkDialog,setNetworkDialog]=useState<string|null>(null);
+ useEffect(()=>platform.onUsernameChange(username=>{if(net.current?.room)net.current.send({type:'identity',username});}),[]);
+ useEffect(()=>{if(ready)return platform.onMultiplayerRequest(request=>launchRequest.current(request));},[ready]);
  useEffect(()=>{if(art.current)art.current.playerParts=room?room.players.map(p=>makeAvatarParts(p.avatar||DEFAULT_PLAYER)):cup?[makeCharacterParts([TEAM_BY_ID[cup.player]],false,[cup.character||0])[0],null]:avatar?[makeAvatarParts(avatar),null]:undefined;},[avatar,room,cup,ready]);
  useEffect(()=>{const el=frame.current;if(!el)return;const block=(e:MouseEvent)=>{if(e.type==='contextmenu'||e.type==='dblclick'||e.detail>1){e.preventDefault();if(e.type==='dblclick')e.stopPropagation();}};el.addEventListener('dblclick',block,true);el.addEventListener('contextmenu',block,true);return()=>{el.removeEventListener('dblclick',block,true);el.removeEventListener('contextmenu',block,true);};},[]);
  const online=!!room;
@@ -69,20 +79,48 @@ export default function Home(){
  },[audio]);
  useEffect(()=>platform.onAudioChange(setSdkMuted),[]);
  function retrySave(){try{savePreferences();setSaveError('');}catch{setSaveError('Your settings have not saved. Please retry.');}}
- function leaveRoom(){net.current?.close();net.current=null;setRoom(null);setConnecting(false);aim.current=null;drag.current=null;charge.current=0;}
- function roomMenu(){leaveRoom();setCopied(false);storeCup(null);setNetworkError('');setScreen('rooms');setPaused(false);}
- async function connectRoom(create:boolean){
-  if(connecting)return;
-  if(!create&&roomCode===TEST_COIN_CODE){try{const next=redeemTestCoins(wallet,roomCode);commitWallet(next);setRoomCode('');setNetworkError('');setRoomNotice(`Test coins ready: ${next.coins.toLocaleString()} coins. Open the Shop to unlock players.`);}catch{setNetworkError('Could not save test coins. Browser storage is unavailable.');}return;}
+ function leaveRoom(){const client=net.current;net.current=null;client?.close();platform.updateRoom(null);setRoom(null);connectingRef.current=false;setConnecting(false);setCopied(false);setInviteCopied(false);setInviteFallback('');aim.current=null;drag.current=null;charge.current=0;}
+ function roomMenu(){leaveRoom();storeCup(null);setNetworkError('');setNetworkDialog(null);setScreen('rooms');setPaused(false);}
+ async function connectRoom(create:boolean,invitedCode?:string,instant=false){
+  if(connectingRef.current)return;
+  if(!create&&invitedCode===undefined&&roomCode===TEST_COIN_CODE){try{const next=redeemTestCoins(wallet,roomCode);commitWallet(next);setRoomCode('');setNetworkError('');setRoomNotice(`Test coins ready: ${next.coins.toLocaleString()} coins. Open the Shop to unlock players.`);}catch{setNetworkError('Could not save test coins. Browser storage is unavailable.');}return;}
   setRoomNotice('');
-  if(!create&&!/^[A-Z2-9]{6}$/.test(roomCode.trim().toUpperCase())){setNetworkError('Enter the six-character room code.');return;}
-  setNetworkError('');setConnecting(true);net.current?.close();
+  const code=validRoomCode(invitedCode??roomCode),fromInvite=invitedCode!==undefined||instant;
+  if(!create&&!code){setNetworkError('Enter the six-character room code.');return;}
+  leaveRoom();setNetworkError('');setNetworkDialog(null);connectingRef.current=true;setConnecting(true);
+  let client:RoomClient|null=null;
+  const fail=(message:string)=>{
+   if(client&&net.current!==client)return;
+   if(!client?.room){net.current=null;client?.close();platform.updateRoom(null);setRoom(null);}
+   connectingRef.current=false;setConnecting(false);setNetworkError(message);if(fromInvite)setNetworkDialog(message);
+  };
   try{const url=new URL(server);if(!['ws:','wss:'].includes(url.protocol))throw Error('Use a ws:// or wss:// server address.');if(location.protocol==='https:'&&url.protocol!=='wss:')throw Error('Secure pages need a wss:// game server.');
-   const client=new RoomClient(url.href,r=>{setRoom(r);if(art.current&&stadiums.current[r.stadium??0])art.current.stadium=stadiums.current[r.stadium??0];setConnecting(false);setDuration(r.duration);setMode(r.mode);},()=>{angle.current=net.current?.seat===1?-2.44:-.7;aim.current=null;drag.current=null;charge.current=0;setPaused(false);setScreen('match');setTimeout(()=>canvas.current?.focus(),0);},message=>{setNetworkError(message);setConnecting(false);},message=>{setRoom(null);setConnecting(false);setNetworkError(message);setScreen('rooms');setPaused(false);});
-   net.current=client;await client.connect();client.send(create?{type:'create',team,avatar,mode:mode==='golden'?'golden':'normal',duration}:{type:'join',team,avatar,code:roomCode.trim().toUpperCase()});
-  }catch(e){net.current?.close();net.current=null;setNetworkError(e instanceof Error?e.message:'Connection failed.');setConnecting(false);}
+   client=new RoomClient(url.href,r=>{
+    if(net.current!==client)return;setRoom(r);platform.updateRoom(r);if(art.current&&stadiums.current[r.stadium??0])art.current.stadium=stadiums.current[r.stadium??0];connectingRef.current=false;setConnecting(false);setDuration(r.duration);setMode(r.mode);
+    // The optional account lookup can finish while the join is in flight.
+    if((r.players[client!.seat]?.username||null)!==platform.username)client!.send({type:'identity',username:platform.username});
+   },()=>{if(net.current!==client)return;angle.current=client!.seat===1?-2.44:-.7;aim.current=null;drag.current=null;charge.current=0;visibilityPause.current=false;setPaused(false);setScreen('match');setTimeout(()=>canvas.current?.focus(),0);},fail,message=>{
+    if(net.current!==client)return;leaveRoom();setNetworkError(message);setScreen('rooms');setPaused(false);
+   });
+   net.current=client;await client.connect();if(net.current!==client||client.closed)return;
+   const player={team,avatar:publicAvatar(avatar),username:platform.username};
+   client.send(create?{type:'create',...player,mode:instant?'normal':mode==='golden'?'golden':'normal',duration:instant?45:duration}:{type:'join',...player,code});
+  }catch(e){fail(e instanceof Error?e.message:'Connection failed.');}
  }
+ launchRequest.current=request=>{
+  if(request.kind==='invalid'){setNetworkDialog('This invitation is invalid. Ask your friend for a new invite link or room code.');return;}
+  if(request.kind==='join'&&net.current?.room?.code===request.code)return;
+  leaveRoom();storeCup(null);visibilityPause.current=false;setPaused(false);setTitleMode('Online Friendly');setScreen('rooms');
+  if(request.kind==='join'){setRoomCode(request.code);void connectRoom(false,request.code);}else{setMode('normal');void connectRoom(true,undefined,true);}
+ };
  async function copyCode(){if(!room)return;try{await navigator.clipboard.writeText(room.code);setCopied(true);setTimeout(()=>setCopied(false),1800);}catch{setNetworkError(`Room code: ${room.code}`);}}
+ async function copyInvite(){
+  if(!room||room.isJoinable===false||room.players.length>=2)return;
+  try{const link=platform.inviteLink(room.code);if(!link)throw Error('Invite links are unavailable. Share the room code instead.');
+   try{await navigator.clipboard.writeText(link);if(net.current?.room?.code===room.code){setInviteCopied(true);setInviteFallback('');setTimeout(()=>setInviteCopied(false),1800);}}
+   catch{if(net.current?.room?.code===room.code)setInviteFallback(link);}
+  }catch{setNetworkError('Invite links are unavailable. Share the room code instead.');}
+ }
  const live=useRef({screen,paused,sound});live.current={screen,paused,sound};const angle=useRef(-.7),charge=useRef(0),initialised=useRef(false);
  useEffect(()=>{
   const m=new Match(),matchAudio=new MatchAudio(audio);m.teams=['FRA','POR'];game.current=m;let active=true,animation=0,previous=0,accumulator=0,lastUi=0;
@@ -103,8 +141,8 @@ export default function Home(){
   };animation=requestAnimationFrame(draw);
   const visibility=()=>{audio.setVisible(!document.hidden);if(document.hidden)syncAudio();if(document.hidden&&live.current.screen==='match'){if(!net.current?.active&&!live.current.paused){visibilityPause.current=true;setPaused(true);}drag.current=null;aim.current=null;charge.current=0;}};document.addEventListener('visibilitychange',visibility);
   // Navigation can preserve React in the browser's back/forward cache.
-  const leavePage=()=>{if(cupRef.current)resetMenu();};window.addEventListener('pagehide',leavePage);
-  return()=>{active=false;net.current?.close();cancelAnimationFrame(animation);m.dispose();audio.dispose();platform.setGameplay(false);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',leavePage);};
+  const leavePage=()=>{if(cupRef.current||net.current)resetMenu();};window.addEventListener('pagehide',leavePage);
+  return()=>{active=false;net.current?.close();platform.updateRoom(null);cancelAnimationFrame(animation);m.dispose();audio.dispose();platform.setGameplay(false);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',leavePage);};
  },[]);
  function playSelectedMode(){
   if(!ready)return;
@@ -148,16 +186,17 @@ export default function Home(){
    {screen==='select'&&<CupSelect character={cupCharacter} onCharacter={setCupCharacter} selected={team} onSelect={setTeam} onBack={resetMenu} onDraw={beginCup}/>}
    {rewardCup&&<CupRewardScreen key={rewardCup.runId} cup={rewardCup} onClaim={collectCupReward} onClose={()=>setRewardCup(null)}/>}
    {screen==='cup'&&cup&&<CupHub cup={cup} onPlay={begin} onSimulate={simulateRound} onBack={resetMenu}/>}
-   {screen==='rooms'&&<RoomLobby notice={roomNotice} wardrobe={roomWardrobe} onEquip={equipCharacter} onNew={()=>openCreator(null,'rooms')} onEdit={id=>openCreator(id,'rooms')} avatar={avatar} room={room} seat={net.current?.seat||0} team={team} code={roomCode} server={server} connecting={connecting} copied={copied} error={networkError} onCode={setRoomCode} onServer={setServer} onCreate={()=>connectRoom(true)} onJoin={()=>connectRoom(false)} onReady={()=>net.current?.send({type:'ready'})} onCopy={copyCode} onLeave={roomMenu} onBack={resetMenu}/>}
+   {screen==='rooms'&&<RoomLobby notice={roomNotice} wardrobe={roomWardrobe} onEquip={equipCharacter} onNew={()=>openCreator(null,'rooms')} onEdit={id=>openCreator(id,'rooms')} avatar={avatar} room={room} seat={net.current?.seat||0} team={team} code={roomCode} server={server} hideServer={platform.isCrazyGames} connecting={connecting} copied={copied} inviteCopied={inviteCopied} inviteFallback={inviteFallback} error={networkError} onCode={setRoomCode} onServer={setServer} onCreate={()=>connectRoom(true)} onJoin={()=>connectRoom(false)} onReady={()=>net.current?.send({type:'ready'})} onCopy={copyCode} onCopyInvite={platform.canInviteLink?copyInvite:undefined} onLeave={roomMenu} onBack={resetMenu}/>}
    {(screen==='match'||screen==='result')&&<>
-    <div className="score-overlay"><span className="home-score">{hud.teams[0]} {hud.score[0]}</span><div className="match-clock"><button onClick={togglePause} aria-label={paused?'Resume game':'Pause game'}>{online?'☰':paused?'▶':'Ⅱ'}</button><span>{mode==='practice'?'∞':mode==='golden'||hud.sudden?'GG':`${minutes}′`}</span></div><span className="away-score">{mode==='practice'?'PRACTICE':`${hud.score[1]} ${hud.teams[1]}`}</span></div>
+    <div className="score-overlay"><span className="home-score">{hud.teams[0]} {hud.score[0]}{online&&<small className="online-player-name">{playerName(room.players[0],0)}</small>}</span><div className="match-clock"><button onClick={togglePause} aria-label={paused?'Resume game':'Pause game'}>{online?'☰':paused?'▶':'Ⅱ'}</button><span>{mode==='practice'?'∞':mode==='golden'||hud.sudden?'GG':`${minutes}′`}</span></div><span className="away-score">{mode==='practice'?'PRACTICE':`${hud.score[1]} ${hud.teams[1]}`}{online&&<small className="online-player-name">{playerName(room.players[1],1)}</small>}</span></div>
     {screen==='match'&&!paused&&(hud.phase==='countdown'||hud.phase==='goal')&&<div className={`announcement${hud.phase==='goal'?' goal-announcement':''}`} aria-live="polite"><span>{hud.phase==='countdown'?(hud.sudden?'NEXT GOAL WINS':mode==='practice'?'PRACTICE':`${online?'FRIEND MATCH':cup?stageLabel(cup):'MATCH'} · ${hud.teams[0]} VS ${hud.teams[1]}`):''}</span><strong>{hud.phase==='countdown'?hud.message:'GOAL!'}</strong></div>}
     {screen==='match'&&!paused&&hud.phase==='playing'&&mode==='practice'&&<span className="practice-hint">DRAG TO AIM · RELEASE TO LAUNCH · ESC TO PAUSE</span>}
    </>}
    {screen==='match'&&paused&&<section className="pause-screen"><h2>{online?'MATCH MENU':'PAUSED'}</h2>{online&&<p>THE ONLINE MATCH KEEPS PLAYING</p>}<button className="white-button" onClick={togglePause}>RESUME</button><button onClick={resetMenu}>MAIN MENU</button></section>}
    {screen==='settings'&&<section className="settings-screen"><h2>SETTINGS</h2><div className="difficulty-options" role="group" aria-label="Difficulty">{LEVELS.map(level=><button key={level} aria-pressed={difficulty===level} onClick={()=>changeDifficulty(level)}>{DIFFICULTIES[level].label.toUpperCase()}</button>)}</div><p className="difficulty-reward-note">{difficulty==='hard'?'HARD · INT. CUP COINS ENABLED':'INT. CUP COINS DISABLED'}<br/>Earn coins only on Hard. Easy and Regular award no coins.<br/>Changing away from Hard makes the current cup ineligible.</p><button data-audio-toggle disabled={sdkMuted} onClick={()=>{audio.setEnabled(!sound);setSound(!sound);if(!sound)audio.play('click');}}>SOUND: {sdkMuted?'MUTED BY CRAZYGAMES':sound?'ON':'OFF'}</button><button onClick={()=>setDuration(duration===45?90:45)}>MATCH LENGTH: {duration} SECONDS</button><p>DRAG TOWARD YOUR TARGET<br/>RELEASE TO LAUNCH YOUR PLAYER</p><p>KEYBOARD: ← → AIM / HOLD SPACE TO CHARGE<br/>ESC OR P TO PAUSE</p><button className="white-button" onClick={()=>setScreen('title')}>BACK</button></section>}
    {screen==='result'&&!online&&<section className="result-screen"><span className="result-stage">{cup?stageLabel(cup):'MATCH'} · FULL TIME</span><h2>{hud.message}</h2><div className="final-score"><img src={`./flags/${TEAMS.find(t=>t.id===hud.teams[0])?.flag}.svg`} alt={hud.teams[0]}/><span>{hud.score[0]} - {hud.score[1]}</span><img src={`./flags/${TEAMS.find(t=>t.id===hud.teams[1])?.flag}.svg`} alt={hud.teams[1]}/></div><p>{cup?.stage==='group'?'YOUR RESULT + SIMULATED MATCHES UPDATE THE TABLES':isDraw?'DRAW · NEXT GOAL WINS':'CONTINUE TO SEE THE NEXT ROUND'}</p><div className="result-actions"><button className="white-button" onClick={advance}>{isDraw&&cup?.stage!=='group'?'GOLDEN GOAL':'UPDATE TABLES & CONTINUE'}</button><button onClick={resetMenu}>MAIN MENU</button></div></section>}
-   {screen==='result'&&online&&<section className="result-screen"><span>FRIEND MATCH · FULL TIME</span><h2>{hud.score[0]===hud.score[1]?'DRAW':hud.score[net.current?.seat||0]>hud.score[1-(net.current?.seat||0)]?'YOU WIN!':'YOU LOSE'}</h2><div className="final-score">{hud.teams[0]} {hud.score[0]} - {hud.score[1]} {hud.teams[1]}</div><button className="white-button" onClick={()=>net.current?.send({type:'ready'})}>{room?.players[net.current?.seat||0]?.ready?'CANCEL REMATCH':'REMATCH'}</button><p>{room?.players.some(p=>p.ready)?'WAITING FOR BOTH PLAYERS TO ACCEPT':'BOTH PLAYERS MUST ACCEPT THE REMATCH'}</p><button onClick={resetMenu}>LEAVE ROOM</button></section>}
+   {screen==='result'&&online&&<section className="result-screen"><span>FRIEND MATCH · FULL TIME</span><h2>{hud.score[0]===hud.score[1]?'DRAW':hud.score[net.current?.seat||0]>hud.score[1-(net.current?.seat||0)]?'YOU WIN!':'YOU LOSE'}</h2><div className="online-final-score"><span>{playerName(room.players[0],0)}<small>{hud.teams[0]}</small></span><strong>{hud.score[0]} - {hud.score[1]}</strong><span>{playerName(room.players[1],1)}<small>{hud.teams[1]}</small></span></div><button className="white-button" onClick={()=>net.current?.send({type:'ready'})}>{room?.players[net.current?.seat||0]?.ready?'CANCEL REMATCH':'REMATCH'}</button><p>{room?.players.some(p=>p.ready)?'WAITING FOR BOTH PLAYERS TO ACCEPT':'BOTH PLAYERS MUST ACCEPT THE REMATCH'}</p><button onClick={resetMenu}>LEAVE ROOM</button></section>}
+   {networkDialog&&<RoomUnavailable message={networkDialog} onClose={()=>setNetworkDialog(null)}/>}
    {screen!=='title'&&<div className="pixel-overlay" aria-hidden="true"/>}
   </div>
   {saveError&&<div className="save-notice" role="alert">{saveError}<button onClick={retrySave}>RETRY SAVE</button></div>}

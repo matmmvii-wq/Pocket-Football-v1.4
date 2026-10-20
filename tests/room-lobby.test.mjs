@@ -5,3 +5,13 @@ test('before joining: one character, create/join controls and no issued room cod
 test('host alone has visible code, one character and empty second slot',()=>{const html=markup({...room,players:room.players.slice(0,1)});assert.match(html,/CODE:/);assert.match(html,/ABC234/);assert.match(html,/WAITING FOR PLAYER/);assert.equal((html.match(/<canvas /g)||[]).length,1);assert.match(html,/READY UP/);assert.ok(!html.includes('CREATE ROOM'));});
 test('both players have their own box and readiness status above their characters',()=>{const html=markup({...room,players:[{team:'SPA',ready:true},{team:'BRA',ready:false}]});assert.equal((html.match(/<canvas /g)||[]).length,2);assert.match(html,/room-ready-status ready[^>]*[^]*READY[^]*Default Player character/);assert.match(html,/UNREADY[^]*Default Player character/);assert.match(html,/aria-pressed="true"[^>]*>UNREADY/);assert.match(html,/COPY CODE/);assert.match(html,/2\/2 PLAYERS/);assert.ok(!html.includes('CREATE ROOM'));});
 test('guest ready button follows guest state, not host; errors and connecting state are visible',()=>{const html=markup({...room,players:[{team:'SPA',ready:true},{team:'BRA',ready:false}]},1);assert.match(html,/aria-pressed="false"[^>]*>READY UP/);const waiting=markup(null,0,{connecting:true,error:'Room not found.'});assert.match(waiting,/CONNECTING/);assert.match(waiting,/disabled=""[^>]*>CREATE ROOM/);assert.match(waiting,/role="alert"[^>]*>Room not found\./);});
+
+test('Friends lobby shows account names, hides private character labels and disables invitations to full rooms',()=>{
+ const online={...room,isJoinable:false,players:[{team:'ARG',ready:false,username:'CG_Host',avatar:{name:'Secret character',hair:'long'}},{team:'BRA',ready:false,username:'Friend_123'}]};
+ const html=markup(online,0,{onCopyInvite:()=>{}});assert.match(html,/>CG_Host<\/h3>/);assert.match(html,/>Friend_123<\/h3>/);assert.ok(!html.includes('Secret character'));assert.match(html,/Custom Player character/);assert.match(html,/disabled=""[^>]*>COPY INVITE LINK/);
+ const solo=markup({...online,isJoinable:true,players:online.players.slice(0,1)},0,{onCopyInvite:()=>{}});assert.match(solo,/<button>COPY INVITE LINK<\/button>/);
+});
+test('guest names and selectable invitation fallback are available without exposing server settings on CrazyGames',()=>{
+ const html=markup(room,0,{onCopyInvite:()=>{},inviteFallback:'https://www.crazygames.com/game/test?roomCode=ABC234'});assert.match(html,/>Guest 1<\/h3>/);assert.match(html,/>Guest 2<\/h3>/);assert.match(html,/aria-label="Friend invite link"/);assert.match(html,/readOnly=""/);
+ assert.ok(!markup(null,0,{hideServer:true}).includes('SERVER ADDRESS'));assert.match(markup(),/SERVER ADDRESS/);
+});

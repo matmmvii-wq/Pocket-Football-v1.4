@@ -59,3 +59,13 @@
 
 /* Progress and platform status */
 .service-loading{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem;text-align:center;padding:2rem;font-size:clamp(12px,2vw,20px)}.service-loading button,.save-notice button{border:1px solid #dbd39b;padding:.6em 1em;color:#fff3b5}.save-notice{position:absolute;left:12px;right:12px;bottom:12px;z-index:30;background:#101822f2;border:1px solid #bda763;font:13px/1.5 Arial,sans-serif;color:#ffe2a5;padding:12px;display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap}
+
+/* Friends identities fit a full twenty-character CrazyGames username. */
+.online-player-name{display:block;font:1.15cqw/1.6 Pixel,monospace;white-space:normal;overflow-wrap:anywhere;color:#fff0b5;padding-top:.65cqw;max-width:35cqw}
+.away-score .online-player-name{margin-left:auto}
+.score-overlay>.home-score,.score-overlay>.away-score{min-width:0}
+.online-final-score{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:2cqw;width:90%;font:1.35cqw/1.7 Pixel,monospace}
+.online-final-score>span{overflow-wrap:anywhere}.online-final-score small{display:block;font-size:1cqw;color:#aabbd0;margin-top:.6cqw}.online-final-score strong{font:3.5cqw Pixel,monospace;white-space:nowrap}
+.invite-link-fallback{font:1cqw/1.5 system-ui,sans-serif;width:100%;color:#d9e6f2}.invite-link-fallback input{display:block;width:100%;min-width:0;margin-top:.5cqw;background:#071b2c;color:#fff;border:1px solid #57718a;padding:.6cqw;font:1cqw system-ui,sans-serif}
+.network-dialog{border:.25cqw solid #f4d27b;background:#10263c;color:#f5f4ed;width:72cqw;max-width:90%;padding:3cqw;text-align:center;box-shadow:0 1cqw 6cqw #0009}
+.network-dialog[open]{display:flex;flex-direction:column;align-items:center;gap:2cqw}.network-dialog::backdrop{background:#000b}.network-dialog h2{font:2cqw/1.6 Pixel,monospace;margin:0;color:#ffe182}.network-dialog p{font:1.65cqw/1.65 system-ui,sans-serif;margin:0;max-width:100%}.network-dialog .white-button{font-size:1.5cqw}

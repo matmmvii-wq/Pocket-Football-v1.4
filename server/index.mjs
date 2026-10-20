@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {dirname,resolve,extname,sep} from 'node:path';
 import {randomInt} from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
-import {normalizeAvatar} from '../src/avatar';
+import {publicAvatar,displayUsername} from '../src/multiplayer';
 import {Match,TEAMS} from '../src/game';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'client');
 const rooms=new Map(),connections=new Map();
@@ -25,7 +25,7 @@ server.on('upgrade',(req,socket,head)=>{
 function send(ws,msg){if(ws.readyState===WebSocket.OPEN&&ws.bufferedAmount<128000)ws.send(JSON.stringify(msg));}
 function error(ws,message){send(ws,{type:'error',message});}
 function broadcast(room,msg){room.members.forEach(p=>send(p.ws,msg));}
-function lobby(room){broadcast(room,{type:'room',code:room.code,stadium:room.stadium,players:room.members.map(p=>({team:p.team,ready:p.ready,avatar:p.avatar})),mode:room.mode,duration:room.duration});}
+function lobby(room){broadcast(room,{type:'room',code:room.code,stadium:room.stadium,isJoinable:!room.active&&room.members.length<2,players:room.members.map(p=>({team:p.team,ready:p.ready,avatar:p.avatar,username:p.username})),mode:room.mode,duration:room.duration});}
 function snapshot(room){const m=room.match;return {type:'snapshot',seq:room.seq++,score:m.score,time:m.time,duration:m.duration,phase:m.phase,message:m.message,teams:m.teams,mode:m.mode,sudden:m.suddenDeath,bodies:m.objects.map(b=>[b.position.x,b.position.y,b.angle])};}
 function closeRoom(room,reason){if(!rooms.has(room.code))return;broadcast(room,{type:'closed',message:reason});for(const p of room.members)p.ws.room=null;room.match.dispose();rooms.delete(room.code);}
 function leave(ws){if(ws.room){const room=rooms.get(ws.room);if(room)closeRoom(room,'A player left. Create or join another room.');ws.room=null;}}
@@ -38,22 +38,23 @@ wss.on('connection',ws=>{
   const room=rooms.get(ws.room);
   if(data.type==='create'||data.type==='join'){
    if(room){error(ws,'Leave your current room first.');return;}
-   const team=TEAMS.some(t=>t.id===data.team)?data.team:'ARG';const avatar=data.avatar&&typeof data.avatar==='object'?normalizeAvatar(data.avatar):null;
+   const username=displayUsername(data.username);const team=TEAMS.some(t=>t.id===data.team)?data.team:'ARG';const avatar=data.avatar&&typeof data.avatar==='object'?publicAvatar(data.avatar):null;
    if(data.type==='create'){
     if(now-ws.created<1500){error(ws,'Please wait before creating another room.');return;}
     if(rooms.size>=Number(process.env.MAX_ROOMS||100)){error(ws,'Server is full. Try again shortly.');return;}
-    ws.created=now;const id=code(),match=new Match();match.multiplayer=true;const r={code:id,match,members:[{ws,team,avatar,ready:false}],mode:data.mode==='golden'?'golden':'normal',duration:data.duration===90?90:45,seq:0,created:now,active:false,stadium:chooseStadium(-1)};rooms.set(id,r);ws.room=id;send(ws,{type:'seat',seat:0});lobby(r);
+    ws.created=now;const id=code(),match=new Match();match.multiplayer=true;const r={code:id,match,members:[{ws,team,avatar,username,ready:false}],mode:data.mode==='golden'?'golden':'normal',duration:data.duration===90?90:45,seq:0,created:now,active:false,stadium:chooseStadium(-1)};rooms.set(id,r);ws.room=id;send(ws,{type:'seat',seat:0});lobby(r);
    }else{
     const r=rooms.get(String(data.code||'').toUpperCase());if(!r){error(ws,'Room not found. Check the code.');return;}if(r.members.length>=2){error(ws,'This room is full.');return;}
-    r.members.push({ws,team,avatar,ready:false});ws.room=r.code;send(ws,{type:'seat',seat:1});lobby(r);
+    r.members.push({ws,team,avatar,username,ready:false});ws.room=r.code;send(ws,{type:'seat',seat:1});lobby(r);
    }return;
   }
   if(data.type==='leave'){leave(ws);return;}
   if(!room){error(ws,'Join a room first.');return;}
   const seat=room.members.findIndex(p=>p.ws===ws),member=room.members[seat];
+  if(data.type==='identity'){member.username=displayUsername(data.username);lobby(room);return;}
   if(data.type==='avatar'){
    if(room.active)return;
-   member.avatar=normalizeAvatar(data.avatar);room.members.forEach(p=>p.ready=false);lobby(room);return;
+   member.avatar=publicAvatar(data.avatar);room.members.forEach(p=>p.ready=false);lobby(room);return;
   }
   if(data.type==='ready'){
    if(room.active&&room.match.phase!=='finished')return;

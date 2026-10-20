@@ -1,0 +1,65 @@
+POCKET FOOTBALL v1.34.0 — REPLACEMENT FILES
+
+This is the update package for your existing GitHub/Railway project.
+It uses the same folders you already have. It is the same Friends update as
+the v1.34.0 playable build, packaged for replacing source files.
+
+HOW TO APPLY
+1. Extract this ZIP into a separate folder.
+2. Open your existing project folder (the folder containing package.json).
+3. Copy the included files to the SAME relative paths in your project.
+   Merge the contents of src, server and tests into those existing folders.
+   Replace the matching files and add the new files. Keep all other files.
+4. In particular, add src/multiplayer.ts and tests/friends.test.mjs.
+5. Keep your existing public, scripts, audio-source and design folders in place.
+   Your public/config.js setting is preserved by this package.
+6. From the project folder, run:
+
+   npm run check
+   npm run build
+
+7. Commit/upload the changed source files to your existing GitHub repository
+   through your usual workflow. The current Railway Docker build also runs
+   the build command automatically.
+
+WHAT THE FOLDERS MEAN
+public/            Original art, audio, flags, fonts, video and config.js
+src/               Editable game and interface source
+server/index.mjs   Editable multiplayer server source
+scripts/           Existing build scripts
+ dist/client/      Generated browser game, including COPIES of public assets
+ dist/server.mjs   Generated server ready to run
+
+The build regenerates dist. Copies of public assets inside dist/client are
+normal. The source public folder stays at the project root.
+If you already copied in the playable dist folder, the next build will replace
+it using your updated source. Keep the source folders alongside it.
+
+This ZIP has no dist or public folder because this Friends update changes code,
+not assets. It also preserves your existing Dockerfile and build scripts.
+It is an update for the existing project, not a complete standalone game ZIP.
+
+VERIFICATION
+The source passes TypeScript and builds successfully. The rebuilt game.js,
+game.css and server.mjs are byte-for-byte identical to the v1.34.0 playable
+package previously tested. The included focused Friends/lobby/shop tests pass.
+See FRIENDS-UPDATE.md for the original integration test coverage and portal QA.
+
+The real Railway public URL is still required to connect the CrazyGames static
+upload. This packaging correction does not deploy or submit the game.
+
+INCLUDED FILES
+  src/App.tsx
+  src/RoomLobby.tsx
+  src/platform.ts
+  src/multiplayer.ts
+  src/network.ts
+  src/style.css
+  server/index.mjs
+  package.json
+  package-lock.json
+  tests/friends.test.mjs
+  tests/room-lobby.test.mjs
+  tests/rooms.test.mjs
+  tests/shop.test.mjs
+  FRIENDS-UPDATE.md
